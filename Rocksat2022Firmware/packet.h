@@ -15,25 +15,19 @@
 struct acc_t {
   unsigned long t;
   float data[3];
-};
+}; // 4 bytes
 
 // type PTYPE_IMU
 struct imu_t {
   unsigned long t;
   float data[6];
-};
+}; // 7 bytes
 
 // type PTYPE_TMP
 struct tc_t {
   unsigned long t;
   float data[NUM_TC_CHANNELS];
-};
-
-// type PTYPE_PRS
-struct prs_t {
-  unsigned long t;
-  float data[NUM_PRS_CHANNELS];
-};
+}; // NUM_TC_CHANNELS + 1 bytes
 
 //type PTYPE_BAR
 struct bar_t {
@@ -41,9 +35,10 @@ struct bar_t {
   float prs;
   float alt;
   float tmp;
-}; 
+}; // 4 bytes
 
 // type PTYPE_TELEM
+#ifdef USE_GPS
 struct tlm_t {
   unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
   float lat;     // gps latitude
@@ -59,6 +54,23 @@ struct tlm_t {
   tc_t tc;      // thermocouple data
   prs_t prs;     // external pressure sensors
 };
+#else
+struct tlm_t {
+  unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
+  float tmp;     // capsule internal temperature
+  float bat;     // battery voltage
+  int   irsig;   // iridium signal strength
+  bool  pardep;  // parachute deployed yes/no
+  tc_t tc;      // thermocouple data
+};
+#endif
+
+#ifdef USE_SPECTROMETER
+struct spec_t {
+  unsigned long t;
+  uint8_t data[NUM_SPEC_CHANNELS];
+};
+#endif
 
 // not a packet type, used in the groundstation firmware to hold the extra radio receive info
 struct rxtlm_t {

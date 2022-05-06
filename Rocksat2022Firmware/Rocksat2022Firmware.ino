@@ -7,9 +7,11 @@
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
+#include <Adafruit_NeoPixel.h>
 #include <Adafruit_I2CDevice.h>
 #include <Adafruit_I2CRegister.h>
 #include <Adafruit_MPL3115A2.h>
+#include <Adafruit_MCP9600.h>
 #include <ArduinoNmeaParser.h>
 #include <FreeRTOS_SAMD51.h>
 #include <SerialTransfer.h>
@@ -20,30 +22,19 @@
 #include <Servo.h>
 #include "wiring_private.h"
 
-
-//#define DEBUG 1 // usb serial debug switch
-#ifdef DEBUG
-  //#define DEBUG_GPS 1 // print raw gga to serial 
-  //#define DEBUG_QUEUE 1 // print info on log queue operations
-  //#define DEBUG_VERBOSE 1
-  //#define DEBUG_BARO 1
-  #define DEBUG_IRD 1
-  //#define DEBUG_LOG 1
-  #define DEBUG_PAR 1
-  #define DEBUG_RAD 1
-  //#define DEBUG_TPMS_TRANSFER
-#endif
-
-bool sendPackets = 0;
-
-
 #include "delay_helpers.h" // rtos delay helpers
 #include "config.h"        // project wide defs
 #include "packet.h"        // packet definitions
 #include "commands.h"      // command spec
 #include "pins.h"                  // CDH system pinouts
 
-// Serial 2
+/* Serial 2
+ The GPIO on the SAMD processor support multipler serial protocols
+ on various compbinations of pins for more flexibility
+ this configures pin 13 as RX and 12 as TX of SERCOM3 in hardware.
+ These handlers then in turn trigger the handler for the Serial2 object
+ in Arduino
+ */
 Uart Serial2( &sercom3, 13, 12, SERCOM_RX_PAD_1, UART_TX_PAD_0 ) ;
 void SERCOM3_0_Handler()
 {
@@ -62,7 +53,6 @@ void SERCOM3_3_Handler()
   Serial2.IrqHandler();
 }
 
-/*
 // Serial3
 Uart Serial3 (&sercom4, A3, A2, SERCOM_RX_PAD_1, UART_TX_PAD_0);
 void SERCOM4_0_Handler()
@@ -81,13 +71,19 @@ void SERCOM4_3_Handler()
 {
   Serial3.IrqHandler();
 }
-*/
 
-// debug serial
+
+// rename serial ports
 #define SERIAL      Serial  // debug serial (USB) all uses should be conditional on DEBUG define
 #define SERIAL_IRD  Serial2 // to iridium modem
 #define SERIAL_LOR  Serial3 // to telemetry radio
 
+// TC to digital objects
+Adafruit_MCP9600 mcps[18];
+
+// I2C addresses on MCP breakout board, use this to assign proper channels
+// need to specify per breakout if addressing not consistent between boards
+const uint8_t MCP_ADDRS[6] = {0x62, 0x61, 0x60, 0x63, 0x64, 0x67};
 
 // freertos task handles
 TaskHandle_t Handle_tcTask; // data receive from TPM subsystem task
@@ -100,11 +96,14 @@ TaskHandle_t Handle_radTask; // telem radio task handle
 //TaskHandle_t Handle_monitorTask; // debug running task stats over uart task
 
 // freeRTOS queues
-QueueHandle_t qTmpData; // temperature or heat flux data to be logged
+// tasks write direct to SD buffer
+/*QueueHandle_t qTmpData; // temperature or heat flux data to be logged
 QueueHandle_t qPrsData; // pressure data to be logged
 QueueHandle_t qGgaData; // GGA GPS fix data to be logged
 QueueHandle_t qRmcData; // RMC GPS data to be logged
 QueueHandle_t qBarData; // barometric pressure data
+*/
+
 
 // freeRTOS semaphores
 SemaphoreHandle_t tpmSerSem; // data from CDH semaphore
@@ -114,24 +113,74 @@ SemaphoreHandle_t gpsSerSem; // gps serial port acces
 SemaphoreHandle_t irdSerSem; // iridium serial semaphore
 SemaphoreHandle_t depSem; // deployment status protector
 SemaphoreHandle_t sigSem; // iridium signal protector
+SemaphoreHandle_t wbufSem; // SD buffer write semaphore
+SemaphoreHandle_t ledSem; // neopixel sepaphore
+
+uint8_t rbuf[RBUF_SIZE];
+char sbuf[SBUF_SIZE];
+char printbuf[100];
+
+
+static uint8_t logBuf1[LOGBUF_SIZE];
+static uint8_t logBuf2[LOGBUF_SIZE];
+uint32_t endWriteOffset1 = 0; // how many bytes short of LOGBUF_SIZE was the data length of the last block write
+uint32_t endWriteOffset2 = 0;
+uint32_t logBuf1Pos = 0, // current write index in buffer1
+         logBuf2Pos = 0; // current write index in buffer2
+uint8_t activeLog = 0;   // which buffer should be used fo writing
+volatile bool gb1Full = false, gb2Full = false;
 
 bool globalDeploy = false;
 bool irSig = 0;
 
 // GPS update callbacks
+#ifdef USE_GPS
 //void onRmcUpdate(nmea::RmcData const);
 //void onGgaUpdate(nmea::GgaData const);
 
 // GPS parser object
 //ArduinoNmeaParser parser(onRmcUpdate, onGgaUpdate);
+#endif
+
+
+#ifdef USE_LEDS
+
+Adafruit_NeoPixel led(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+
+void ledError(int type) {
+  switch (type) {
+  case ERR_BOOT:
+    led.setPixelColor(0, led.Color(150, 0, 0));
+    break;
+  case ERR_2:
+    led.setPixelColor(0, led.Color(150, 0, 150));
+    break;
+  case ERR_3:
+    led.setPixelColor(0, led.Color(150, 150, 0));
+    break;
+  case ERR_4:
+    led.setPixelColor(0, led.Color(0, 150, 150));
+    break;
+  }
+
+  led.show();
+}
+
+void ledOk() {
+  led.setPixelColor(0, led.Color(0, 150, 0));
+}
+#endif
+
+
+#ifdef USE_SPECTROMETER
+uint16_t specData[NUM_SPEC_CHANNELS];
+#endif
 
 // IRIDIUM MODEM OBJECT
 IridiumSBD modem(SERIAL_IRD);
 
-// Parachute C02 servo setup
-#define CO2SERVO_POS_ACT  17
-#define CO2SERVO_POS_HOME 150
-Servo co2servo;
+// Parachute servo setup
+Servo linAct1, linAct2;
 
 /*
 void onRmcUpdate(nmea::RmcData const rmc)
@@ -254,7 +303,46 @@ void onGgaUpdate(nmea::GgaData const gga)
 }
 */
 
+// thread safe copy of src boolean to dest boolean.
+// dont use do assign a direct value to dest, use safeAssign for that
+bool safeUpdate(bool &dest, bool &src, SemaphoreHandle_t &m) {
+  // wait100 ticks to do the assignment
+  if ( xSemaphoreTake( m, ( TickType_t ) 100 ) == pdTRUE ) {
+    dest = src;
+    xSemaphoreGive( m ); //  free the mutex
+    return true; // assignment success
+  } else {
+    return false;  // if no assignment was made
+  }
+}
 
+// thread safe assignement of a direct truth val to dest
+// pass this function a direct truth value
+bool safeAssign(bool &dest, bool src, SemaphoreHandle_t &m) {
+  // wait100 ticks to do the assignment
+  if ( xSemaphoreTake( m, ( TickType_t ) 100 ) == pdTRUE ) {
+    dest = src;
+    xSemaphoreGive( m ); //  free the mutex
+    return true; // assignment success
+  } else {
+    return false;  // if no assignment was made
+  }
+}
+
+// thread safe global read
+bool safeRead(bool &src, SemaphoreHandle_t &m) {
+  bool ret = false;
+  // wait100 ticks to do the assignment
+  if ( xSemaphoreTake( m, ( TickType_t ) 100 ) == pdTRUE ) {
+    ret = src;
+    xSemaphoreGive( m ); //  free the mutex
+  }
+  return ret;
+}
+
+
+
+#ifdef USE_GPS
 /**********************************************************************************
 /**********************************************************************************
 /**********************************************************************************
@@ -285,6 +373,8 @@ static void gpsThread( void *pvParameters )
   vTaskDelete( NULL );  
 }
 */
+#endif
+
 
 /**********************************************************************************
 /**********************************************************************************
@@ -309,12 +399,8 @@ static void irdThread( void *pvParameters )
     xSemaphoreGive( dbSem );
   }
   #endif
-
-  // enable modem
-  digitalWrite(PIN_IRIDIUM_EN, HIGH);
   
-  myDelayMs(5000); // give modem time to power up
-    
+  myDelayMs(1000); // give modem time to power up
     
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -438,7 +524,7 @@ static void irdThread( void *pvParameters )
     // IS IT TIME TO SEND A PACKKAGE??
     if( xTaskGetTickCount() - lastPacketSend > IRIDIUM_PACKET_PERIOD && 
         (mSq > 0) && 
-        sendPackets ){
+        SEND_PACKETS ){
       
       #ifdef DEBUG_IRD
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -447,6 +533,7 @@ static void irdThread( void *pvParameters )
       }
       #endif
 
+      // TODO: fill the buff with compressed data
       
       irerr = modem.sendSBDText(buf);
             
@@ -482,19 +569,161 @@ static void irdThread( void *pvParameters )
 /**********************************************************************************
 /**********************************************************************************
 /**********************************************************************************
- * TPM Serial monitoring thread
+ * TPM Serial monitoring thread and helpers
 */
+
+/* safely read from an MCP device
+ *
+*/
+float readMCP(int id) {
+  float hot=0.0;//ambient=0.0,adcval=0.0;
+
+  if ( xSemaphoreTake( i2c1Sem, ( TickType_t ) 100 ) == pdTRUE ) {
+
+      hot = mcps[id].readThermocouple();
+
+      xSemaphoreGive( i2c1Sem );
+  }
+
+  return hot;
+}
+
+// initialize an MCP device
+// made to run before task scheduler is started
+bool initMCP(int id) {
+  bool ok = true;
+  uint8_t addr = MCP_ADDRS[id];
+  uint8_t tries = 0;
+  uint8_t max_tries = 100;
+
+  #if DEBUG
+  SERIAL.print("Starting MCP #");SERIAL.print(id);
+  #endif
+
+  delay(10);
+
+  while ( !mcps[id].begin(addr) && tries < max_tries) {
+    delay(10);
+    tries++;
+  }
+
+  if( tries == max_tries) {
+    ok = false;
+    #if DEBUG
+    SERIAL.println("Sensor not found. Check wiring!");
+    #endif
+  } else {
+    #if DEBUG
+    SERIAL.println("  Found MCP9600!");
+    #endif
+  }
+
+  mcps[id].setADCresolution(MCP9600_ADCRESOLUTION_14);
+  /*
+  SERIAL.print("ADC resolution set to ");
+  switch (mcps[id].getADCresolution()) {
+    case MCP9600_ADCRESOLUTION_18:   SERIAL.print("18"); break;
+    case MCP9600_ADCRESOLUTION_16:   SERIAL.print("16"); break;
+    case MCP9600_ADCRESOLUTION_14:   SERIAL.print("14"); break;
+    case MCP9600_ADCRESOLUTION_12:   SERIAL.print("12"); break;
+  }
+  SERIAL.println(" bits");
+  */
+
+  mcps[id].setThermocoupleType(MCP9600_TYPE_K);
+  /*SERIAL.print("Thermocouple type set to ");
+  switch (mcps[id].getThermocoupleType()) {
+    case MCP9600_TYPE_K:  SERIAL.print("K"); break;
+    case MCP9600_TYPE_J:  SERIAL.print("J"); break;
+    case MCP9600_TYPE_T:  SERIAL.print("T"); break;
+    case MCP9600_TYPE_N:  SERIAL.print("N"); break;
+    case MCP9600_TYPE_S:  SERIAL.print("S"); break;
+    case MCP9600_TYPE_E:  SERIAL.print("E"); break;
+    case MCP9600_TYPE_B:  SERIAL.print("B"); break;
+    case MCP9600_TYPE_R:  SERIAL.print("R"); break;
+  }
+  //SERIAL.println(" type");
+  */
+
+  // TODO: what is the default filter coefficient
+  // https://cdn.sparkfun.com/assets/9/0/b/0/3/MCP9600_Datasheet.pdf
+  mcps[id].setFilterCoefficient(1);
+  //SERIAL.print("Filter coefficient value set to: ");
+  //SERIAL.println(mcps[id].getFilterCoefficient());
+
+  #ifdef DEBUG
+  SERIAL.println("started mcp");
+  #endif
+
+  mcps[id].enable(true);
+
+  return ok;
+}
+
+/*
+void safeKick() {
+  if ( xSemaphoreTake( dogSem, ( TickType_t )  0) == pdTRUE ) {
+   Watchdog.reset();
+   xSemaphoreGive( dogSem );
+  }
+}*/
+
+// thread definition
 static void tcThread( void *pvParameters )
 {
 
+  float current_temps[NUM_TC_CHANNELS];
+  unsigned long lastDebug = 0;
+  unsigned long lastRead = 0;
+
+  #ifdef DEBUG
+  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+    Serial.println("MCP thread started");
+    xSemaphoreGive( dbSem );
+  }
+  #endif
+
   while(1) {
-    
-// TODO: copy in code from TPM processor that talks to the MCP breakout for measureing the tc values
-    
+    if( xTaskGetTickCount() - lastRead > 500 ){
+      lastRead = xTaskGetTickCount();
+      //safeKick();
+
+      // assign tc temps from MCP objects to local vars
+      for( int i=0; i<NUM_TC_CHANNELS; i++ ){
+        current_temps[i] = readMCP(i);
+        //myDelayMs(5);
+        //safeKick();
+      }
+
+      #ifdef DEBUG_TC
+      if( xTaskGetTickCount() - lastDebug > 1000 ){
+        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+          // print tc temps over serial
+          SERIAL.print("TC temps: ");
+          for( int i=0; i<NUM_TC_CHANNELS; i++ ){
+            SERIAL.print(current_temps[i]); if(i<NUM_TC_CHANNELS-1) SERIAL.print(", ");
+          }
+          SERIAL.println();
+          xSemaphoreGive( dbSem );
+        }
+        lastDebug = xTaskGetTickCount();
+      }
+      #endif
+
+      // build data struct to send over serial
+      tc_t data;
+      data.t = xTaskGetTickCount();
+      for( int i=0; i<NUM_TC_CHANNELS; i++ ){
+        data.data[i] = current_temps[i];
+      }
+
+      // try to write the tc data to the SD log buffer that is available
+    }
+
     taskYIELD();
   }
-  
-  vTaskDelete( NULL );  
+
+  vTaskDelete( NULL );
 }
 
 
@@ -504,21 +733,11 @@ static void tcThread( void *pvParameters )
 /**********************************************************************************
  * sd card logging thread
 */
-
-//static uint8_t logRingBuffer[CDH_LOGBUFFERSIZE];
-
 static void logThread( void *pvParameters )
 {
   static bool ready = false;
-  int numToLog;
-  uint8_t toLog[NUM_LOG_FILES];
-  tc_t  tmpData;
-  prs_t prsData;
-  acc_t accData;
-  imu_t imuData;
-  nmea::GgaData ggaData;
-  nmea::RmcData rmcData;
-  bar_t barData;
+  bool b1full = false, b2full = false;
+  uint32_t written = 0;
   File logfile;
   
   #ifdef DEBUG_LOG
@@ -527,9 +746,8 @@ static void logThread( void *pvParameters )
     xSemaphoreGive( dbSem );
   }
   #endif
-  
-  String filenames[NUM_LOG_FILES];
-  filenames[0] = LOGFILE0; // TLM
+
+  char* filename = LOGFILE_NAME;
   
   // INIT CARD
   while (!SD.begin(PIN_SD_CS)) {
@@ -554,71 +772,29 @@ static void logThread( void *pvParameters )
   
   
   // CREATE UNIQUE FILE NAMES (UP TO 100)
-  char filename[15];
-  for( uint8_t j=0; j<NUM_LOG_FILES; j++ ){
-    strcpy(filename, filenames[j].c_str());
-    for( uint8_t i=0; i < 100; i++) {
-      filename[3] = '0' + i/10;
-      filename[4] = '0' + i%10;
-      // create if does not exist, do not open existing, write, sync after write
-      if (! SD.exists(filename)) {
-        break;
-      }
+  for( uint8_t i=0; i < 100; i++) {
+    filename[3] = '0' + i/10;
+    filename[4] = '0' + i%10;
+    // create if does not exist, do not open existing, write, sync after write
+    if (! SD.exists(filename)) {
+      break;
     }
-    filenames[j] = String(filename);
   }
 
+  // main thread loop
+  // check if a buffer is full and if it is switch the active buffer that the threads dump data to to
+  // be the other buffern and start writing this one (ping pong system)
   while(1) {
-    // check for a packet in each of the log data queues
-    numToLog = 0;
-    
-    // TC / HEAT FLUX
-    if( qTmpData != NULL ) {
-      if( xQueueReceive( qTmpData, &tmpData, (TickType_t) 1 ) == pdTRUE ) {
-         toLog[numToLog] = LOGID_TMP;
-         numToLog++;
-      }
+
+    if( !gb1Full && !gb2Full ){
+      taskYIELD();
+      continue;
     }
-    
-    // PRESSURE
-    if( qPrsData != NULL ) {
-      if( xQueueReceive( qPrsData, &prsData, (TickType_t) 1 ) == pdTRUE ) {
-         toLog[numToLog] = LOGID_PRS;
-         numToLog++;
-      }
-    }
-    
-    // GGA GPA DATA
-    if( qGgaData != NULL ) {
-      if( xQueueReceive( qGgaData, &ggaData, (TickType_t) 5 ) == pdTRUE ) {
-         toLog[numToLog] = LOGID_GGA;
-         numToLog++;
-      }
-    }
-    
-    // RMC GPS DATA
-    if( qRmcData != NULL ) {
-      if( xQueueReceive( qRmcData, &rmcData, (TickType_t) 5 ) == pdTRUE ) {
-         toLog[numToLog] = LOGID_RMC;
-         numToLog++;
-      }
-    }
-    
-    // BAROMETER ALT/PRS/TMP DATA
-    if( qBarData != NULL ) {
-      if( xQueueReceive( qBarData, &barData, (TickType_t) 1 ) == pdTRUE ) {
-         toLog[numToLog] = LOGID_BAR;
-         numToLog++;
-      }
-    }
-    /*********************
-    Now write any new data received above to the SD card
-    HOPEFULLY  no need for mutex since this thread is the only one using the SPI port
-    *********************/
-    
-    // open last log file for all telem (single log file configuration)
-    logfile = SD.open(filenames[NUM_LOG_FILES-1], FILE_WRITE);
-    // logfile no good
+
+    // open log file for all telem (single log file configuration)
+    logfile = SD.open(filename, FILE_WRITE);
+
+    // if we could not open the file
     if( ! logfile ) {
       #if DEBUG
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -628,78 +804,73 @@ static void logThread( void *pvParameters )
       }
       #endif
     }
-      
-    // LOGFILE OPEN!
-    // log in CSV format for now because we are lazy
-    for( int i=0; i<numToLog; i++ ){
-    
-      // tc / heat flux
-      if( toLog[i] == LOGID_TMP ){
-        logfile.print(tmpData.t);
-        logfile.print(", ");
-        logfile.print(LOGID_TMP);
-        logfile.print(", ");
-        for( int j=0; j<NUM_TC_CHANNELS; j++ ){
-          logfile.print(tmpData.data[j]);
-          if( j<NUM_TC_CHANNELS-1 ){
-            logfile.print(", ");
-          } else {
-            logfile.println();
-          }
-        }
+
+    // we assume we can open it and start writing the buffer
+    // check if one of the buffers is full and lets write it
+    if( gb1Full ){
+
+      logfile.seek(endWriteOffset1);
+
+      written = logfile.write(logBuf1, LOGBUF_SIZE);
+
+      #if DEBUG
+      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+        Serial.print("SD: wrote  ");
+        Serial.print(written);
+        Serial.print("/");
+        Serial.print(LOGBUF_SIZE);
+        Serial.println(" bytes from logBuf1");
+        xSemaphoreGive( dbSem );
       }
-      
-      // pressure
-      else if( toLog[i] == LOGID_PRS ){
-        logfile.print(prsData.t);
-        logfile.print(", ");
-        logfile.print(LOGID_PRS);
-        logfile.print(", ");
-        for( int j=0; j<NUM_PRS_CHANNELS; j++ ){
-          logfile.print(prsData.data[j]);
-          if( j<NUM_PRS_CHANNELS-1 ){
-            logfile.print(", ");
-          } else {
-            logfile.println();
-          }
-        }
-      }
-      
-      // GGA GPS data
-      else if( toLog[i] == LOGID_GGA ){
-        logfile.print(LOGID_GGA);
-        logfile.print(", ");
-        writeGga(ggaData, logfile);
-      }
-      
-      // RMC GPS data
-      else if( toLog[i] == LOGID_RMC ){
-        logfile.print(LOGID_RMC);
-        logfile.print(", ");
-        writeRmc(rmcData, logfile);
-      } 
-      
-      else if( toLog[i] == LOGID_BAR ){
-        logfile.print(xTaskGetTickCount());
-        logfile.print(", ");
-        logfile.print(LOGID_BAR);
-        logfile.print(", ");
-        logfile.print(barData.prs);
-        logfile.print(", ");
-        logfile.print(barData.alt);
-        logfile.print(", ");
-        logfile.println(barData.tmp);
-      }
-      
-      // should not happen
-      else {
-        // errrrrr
-      }
+      #endif
+
+      // this would omit leaving gaps in the log file, but then we won't be writing
+      // on nice block boundaries within the SD card
+      //endWriteOffset1 += logBuf1Pos;
+
+      // this method leaves blocks of zeros at the end of each
+      endWriteOffset1 += LOGBUF_SIZE;
+
+      // clean the buffer so we are gauranteed to see zeros where there hasn't
+      // been recetn data written to
+      memset(logBuf1, 0, LOGBUF_SIZE);
+
     }
-    
+
+    // check the other buffer
+    if( gb2Full ){
+
+      logfile.seek(endWriteOffset2);
+
+      written = logfile.write(logBuf2, LOGBUF_SIZE);
+
+      #if DEBUG
+      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+        Serial.print("SD: wrote  ");
+        Serial.print(written);
+        Serial.print("/");
+        Serial.print(LOGBUF_SIZE);
+        Serial.println(" bytes from logBuf2");
+        xSemaphoreGive( dbSem );
+      }
+      #endif
+
+      // this would omit leaving gaps in the log file, but then we won't be writing
+      // on nice block boundaries within the SD card
+      //endWriteOffset2 += logBuf2Pos;
+
+      // this method leaves blocks of zeros at the end of each
+      endWriteOffset2 += LOGBUF_SIZE;
+
+      // clean the buffer so we are gauranteed to see zeros where there hasn't
+      // been recetn data written to
+      memset(logBuf2, 0, LOGBUF_SIZE);
+
+    }
+
     // done writing to this file
     logfile.close();
-    
+
     taskYIELD();
     //myDelayMs(10);
   }
@@ -717,9 +888,6 @@ static void logThread( void *pvParameters )
 */
 static void parThread( void *pvParameters )
 {
-  prs_t prsData;
-  nmea::GgaData ggaData;
-  float alt=1.3e6, prs=0;
   bool deployed = false;
 
   #ifdef DEBUG_PAR
@@ -736,41 +904,8 @@ static void parThread( void *pvParameters )
     
     if (deployed) continue;
     
-    // PRESSURE
-    if( qPrsData != NULL ) {
-      if( xQueuePeek( qPrsData, &prsData, portMAX_DELAY ) == pdPASS) {
+    // TODO: implement parachute logic
 
-        // TODO: DECIDE ON WHICH PRESSURE CHANNEL TO USE
-        // USING ONLY ONE CHANNEL FOR NOW
-        prs = prsData.data[0];
-        
-        #ifdef DEBUG_VERBOSE
-        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          Serial.println("parachute: peeked at pressure data!");
-          xSemaphoreGive( dbSem );
-        }
-        #endif
-      }
-    }
-    
-    if( qGgaData != NULL ) {
-      if( xQueuePeek( qGgaData, &ggaData, (TickType_t) 1000 ) == pdPASS) {
-        alt = ggaData.altitude;
-        
-        #ifdef DEBUG_VERBOSE
-        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          Serial.println("parachute: peeked at gps data!");
-          xSemaphoreGive( dbSem );
-        }
-        #endif
-      } 
-    }
-    
-    //if( ( alt <= ALT_THRESH ) && ( prs >= PRS_THRESH ) ){ // DEPLOYYY!
-    if( ( prs >= PRS_THRESH ) ){
-      deployed = true;
-    }
-    
     if ( /* received deploy over radio */ false ) {
       deployed = true;
     }
@@ -793,8 +928,8 @@ static void parThread( void *pvParameters )
       // now start paracture deployment sequence
       // first trigger c02 servo
       
-      co2servo.write(CO2SERVO_POS_ACT);
-      
+      linAct1.write(ACT_POS_ACT);
+      linAct2.write(ACT_POS_ACT);
     }
     
   }
@@ -807,12 +942,6 @@ static void parThread( void *pvParameters )
 /**********************************************************************************
  *  Radio task
 */
-#define RBUF_SIZE 260
-#define SBUF_SIZE 240
-uint8_t rbuf[RBUF_SIZE];
-char sbuf[SBUF_SIZE];
-char printbuf[100];
-
 static void radThread( void *pvParameters )
 {
 
@@ -821,8 +950,7 @@ static void radThread( void *pvParameters )
   nmea::GgaData ggaData;
   nmea::RmcData rmcData;
   tc_t tmpData;
-  prs_t prsData;
-  bar_t barData; 
+  spec_t specData;
   
     /* 0: waiting for +OK from reset
      1: configuring address
@@ -1128,18 +1256,10 @@ static void radThread( void *pvParameters )
             
             // check what the data was
             switch (data[0]) {
-              case CMDID_DEPLOY_DROGUE:
+              case CMDID_DEPLOY_CHUTE:
                 #if DEBUG
                 if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
                   SERIAL.println("Got deploy drogue command");
-                  xSemaphoreGive( dbSem );
-                }
-                #endif
-                break;
-              case CMDID_FIRE_PYRO:
-                #if DEBUG
-                if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-                  SERIAL.println("Got fire pyro command");
                   xSemaphoreGive( dbSem );
                 }
                 #endif
@@ -1169,9 +1289,15 @@ static void radThread( void *pvParameters )
 /**********************************************************************************/
 void setup() {
 
+  // servo control
+  pinMode(PIN_CHUTE_ACT1, OUTPUT);
+  pinMode(PIN_CHUTE_ACT2, OUTPUT);
+
   // attach servo
-  //co2servo.attach(PIN_C02SERVO);
-  //co2servo.write(CO2SERVO_POS_HOME);
+  linAct1.attach(PIN_CHUTE_ACT1);
+  linAct2.attach(PIN_CHUTE_ACT2);
+  linAct1.write(ACT_POS_HOME);
+  linAct2.write(ACT_POS_HOME);
 
   #if DEBUG
   SERIAL.begin(115200); // init debug serial
@@ -1197,81 +1323,40 @@ void setup() {
   pinPeripheral(13, PIO_SERCOM);
   pinPeripheral(12, PIO_SERCOM);
   
-  // setup reliable serial datagram between CDH and TPM processors
-  //myTransfer.begin(SERIAL_TPM, false, SERIAL, 500);
-  myTransfer.begin(SERIAL_TPM);
-  
   // reset pin for lora radio
   pinMode(PIN_LORA_RST, OUTPUT);
   
   // battery voltage divider 
   pinMode(PIN_VBAT, INPUT);
   
-  // servo control
-  pinMode(PIN_C02SERVO, OUTPUT);
-  
-  // iridium power switch
-  pinMode(PIN_IRACT, OUTPUT);
-  
-  // pyro power switch
-  pinMode(PIN_PYROACT, OUTPUT);
-  
-  // scheduler control pin to TPM subsystem
-  pinMode(PIN_TPM_SCHEDULER_CTRL, OUTPUT);
-  digitalWrite(PIN_TPM_SCHEDULER_CTRL, LOW); // TPM scheduler starts when high
-
-  // modem power on/off control
-  pinMode(PIN_IRIDIUM_EN, OUTPUT);
-  digitalWrite(PIN_IRIDIUM_EN, LOW); // modem on when this output high
-
   delay(3000);
   
   #ifdef DEBUG
   SERIAL.println("Starting...");
   #endif
 
-  // CREATE RTOS QUEUES 
-  // temperature data queue
-  qTmpData = xQueueCreate( 10, sizeof( struct tc_t ) );
-  if( qTmpData == NULL ) {
-    /* Queue was not created and must not be used. */
-    #if DEBUG
-    SERIAL.println("Failed to create qTmpData queue");
+  // zero out log buffers
+  memset(logBuf1, 0, LOGBUF_SIZE);
+  memset(logBuf2, 0, LOGBUF_SIZE);
+
+
+  // initialize all MCP9600 chips on the TC to digital breakout
+  bool ok = true;
+  for( int i=0; i<NUM_TC_CHANNELS; i++) {
+    ok &= initMCP(i);
+    delay(100);
+    ledError(ERR_2);
+    //Watchdog.reset();
+  }
+  if (!ok) {
+    #ifdef USELEDS
+    ledError();
+    #endif
+
+    #ifdef DEBUG
+    SERIAL.println("failed to start all MCP devices");
     #endif
   }
-  // pressure data queue
-  qPrsData = xQueueCreate( 10, sizeof( struct prs_t ) );
-  if( qPrsData == NULL ) {
-    /* Queue was not created and must not be used. */
-    #if DEBUG
-    SERIAL.println("Failed to create qPrsData queue");
-    #endif
-  }
-  // gga gps data queue
-  qGgaData = xQueueCreate( 5, sizeof( nmea::GgaData ) );
-  if( qGgaData == NULL ) {
-    /* Queue was not created and must not be used. */
-    #if DEBUG
-    SERIAL.println("Failed to create qGgaData queue");
-    #endif
-  }
-  // rmc gps data queue
-  qRmcData = xQueueCreate( 5, sizeof( nmea::RmcData ) );
-  if( qRmcData == NULL ) {
-    /* Queue was not created and must not be used. */
-    #if DEBUG
-    SERIAL.println("Failed to create qRmcData queue");
-    #endif
-  }  
-  // barometrics pressure data queue
-  qBarData = xQueueCreate( 5, sizeof( struct bar_t ) );
-  if( qBarData == NULL ) {
-    /* Queue was not created and must not be used. */
-    #if DEBUG
-    SERIAL.println("Failed to create qBarData queue");
-    #endif
-  }  
-  // should take action if not all queues were created properly
   
   #ifdef DEBUG
   SERIAL.println("Created queues...");
@@ -1320,7 +1405,19 @@ void setup() {
     if ( ( sigSem ) != NULL )
       xSemaphoreGive( ( sigSem ) );  // make available
   }
-  
+  // setup write buffer sem
+  if ( wbufSem == NULL ) {
+    wbufSem = xSemaphoreCreateMutex();  // create mutex
+    if ( ( wbufSem ) != NULL )
+      xSemaphoreGive( ( wbufSem ) );  // make available
+  }
+  // setup led sem
+  if ( ledSem == NULL ) {
+    ledSem = xSemaphoreCreateMutex();  // create mutex
+    if ( ( ledSem ) != NULL )
+      xSemaphoreGive( ( ledSem ) );  // make available
+  }
+
   #ifdef DEBUG
   SERIAL.println("Created semaphores...");
   #endif
@@ -1328,7 +1425,7 @@ void setup() {
   /**************
   * CREATE TASKS
   **************/
-  xTaskCreate(tpmThread, "TC Measurement", 512, NULL, tskIDLE_PRIORITY, &Handle_tpmTask);
+  xTaskCreate(tcThread, "TC Measurement", 512, NULL, tskIDLE_PRIORITY, &Handle_tcTask);
   xTaskCreate(logThread, "SD Logging", 1024, NULL, tskIDLE_PRIORITY, &Handle_logTask);
   //xTaskCreate(gpsThread, "GPS Reception", 512, NULL, tskIDLE_PRIORITY, &Handle_gpsTask);
   xTaskCreate(irdThread, "Iridium thread", 512, NULL, tskIDLE_PRIORITY, &Handle_irdTask);
@@ -1337,11 +1434,11 @@ void setup() {
   xTaskCreate(radThread, "Telem radio", 1000, NULL, tskIDLE_PRIORITY, &Handle_radTask);
   //xTaskCreate(taskMonitor, "Task Monitor", 256, NULL, tskIDLE_PRIORITY + 4, &Handle_monitorTask);
   
+  ledOk();
+
   // Start the RTOS, this function will never return and will schedule the tasks.
   vTaskStartScheduler();
   
-  co2servo.write(CO2SERVO_POS_HOME);
-
   // error scheduler failed to start
   while(1)
   {
