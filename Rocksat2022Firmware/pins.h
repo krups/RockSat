@@ -3,8 +3,6 @@
 #ifndef ROCKSAT_PINS
 #define ROCKSAT_PINS
 
-#define PIN_LORA_RST              A0
-
 #define PIN_SD_CS                 A5
 #define PIN_SD_SCK                25
 #define PIN_SD_MOSI               24

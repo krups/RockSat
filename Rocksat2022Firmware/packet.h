@@ -2,6 +2,7 @@
 #define PACKET_H
 
 // logging packet structure
+#include "config.h"
 
 #define PTYPE_GGA 1 // nmea::GgaData
 #define PTYPE_RMC 2 // nmea::RmcData
@@ -68,7 +69,7 @@ struct tlm_t {
 #ifdef USE_SPECTROMETER
 struct spec_t {
   unsigned long t;
-  uint8_t data[NUM_SPEC_CHANNELS];
+  char data[NUM_SPEC_CHANNELS];
 };
 #endif
 

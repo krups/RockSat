@@ -75,11 +75,11 @@ void SERCOM4_3_Handler()
 
 // rename serial ports
 #define SERIAL      Serial  // debug serial (USB) all uses should be conditional on DEBUG define
-#define SERIAL_IRD  Serial2 // to iridium modem
+#define SERIAL_IRD  Serial1 // to iridium modem
 #define SERIAL_LOR  Serial3 // to telemetry radio
 
 // TC to digital objects
-Adafruit_MCP9600 mcps[18];
+Adafruit_MCP9600 mcps[6];
 
 // I2C addresses on MCP breakout board, use this to assign proper channels
 // need to specify per breakout if addressing not consistent between boards
@@ -123,15 +123,15 @@ char printbuf[100];
 
 static uint8_t logBuf1[LOGBUF_SIZE];
 static uint8_t logBuf2[LOGBUF_SIZE];
-uint32_t endWriteOffset1 = 0; // how many bytes short of LOGBUF_SIZE was the data length of the last block write
-uint32_t endWriteOffset2 = 0;
-uint32_t logBuf1Pos = 0, // current write index in buffer1
+volatile uint32_t endWriteOffset1 = 0; // how many bytes short of LOGBUF_SIZE was the data length of the last block write
+volatile uint32_t endWriteOffset2 = 0;
+volatile uint32_t logBuf1Pos = 0, // current write index in buffer1
          logBuf2Pos = 0; // current write index in buffer2
-uint8_t activeLog = 0;   // which buffer should be used fo writing
+volatile uint8_t activeLog = 1;   // which buffer should be used fo writing, 1 or 2
 volatile bool gb1Full = false, gb2Full = false;
 
-bool globalDeploy = false;
-bool irSig = 0;
+volatile bool globalDeploy = false;
+volatile bool irSig = 0;
 
 // GPS update callbacks
 #ifdef USE_GPS
@@ -161,13 +161,15 @@ void ledError(int type) {
   case ERR_4:
     led.setPixelColor(0, led.Color(0, 150, 150));
     break;
+  default:
+    led.setPixelColor(0, led.Color(100, 100, 100));
   }
-
   led.show();
 }
 
 void ledOk() {
   led.setPixelColor(0, led.Color(0, 150, 0));
+  led.show();
 }
 #endif
 
@@ -388,11 +390,7 @@ static void irdThread( void *pvParameters )
   char buf[330];
   int mSq = 0, irerr; // signal quality, modem operation return code
   unsigned long lastSignalCheck = 0, lastPacketSend = 0;
-  bool gpsAvailable = false;
-  nmea::RmcData rmcData;
-  
-  sprintf(buf, "No GPS fix yet.");
-  
+    
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.println("Iridium thread started");
@@ -671,14 +669,15 @@ void safeKick() {
 // thread definition
 static void tcThread( void *pvParameters )
 {
-
+  tc_t data;
   float current_temps[NUM_TC_CHANNELS];
   unsigned long lastDebug = 0;
   unsigned long lastRead = 0;
+  uint8_t  ledState = 0;
 
   #ifdef DEBUG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    Serial.println("MCP thread started");
+    Serial.println("TC thread started");
     xSemaphoreGive( dbSem );
   }
   #endif
@@ -687,6 +686,12 @@ static void tcThread( void *pvParameters )
     if( xTaskGetTickCount() - lastRead > 500 ){
       lastRead = xTaskGetTickCount();
       //safeKick();
+
+      if ( xSemaphoreTake( ledSem, ( TickType_t ) 100 ) == pdTRUE ) {
+        ledState = (ledState + 1) % 4;
+        ledError( ledState );
+        xSemaphoreGive( ledSem );
+      }
 
       // assign tc temps from MCP objects to local vars
       for( int i=0; i<NUM_TC_CHANNELS; i++ ){
@@ -711,13 +716,40 @@ static void tcThread( void *pvParameters )
       #endif
 
       // build data struct to send over serial
-      tc_t data;
       data.t = xTaskGetTickCount();
       for( int i=0; i<NUM_TC_CHANNELS; i++ ){
         data.data[i] = current_temps[i];
       }
 
       // try to write the tc data to the SD log buffer that is available
+      if ( xSemaphoreTake( wbufSem, ( TickType_t ) 10 ) == pdTRUE ) {
+
+        if( activeLog == 1 ){
+          // is this the last data we will put in before considering the
+          // buffer full?
+          logBuf1[logBuf1Pos++] = PTYPE_TMP; // set packet type byte
+          memcpy(&logBuf1[logBuf1Pos], &data, sizeof (tc_t));
+          logBuf1Pos += sizeof (tc_t);
+          if( logBuf1Pos >= LOGBUF_FULL_SIZE ){
+            activeLog = 2;
+            logBuf1Pos = 0;
+            gb1Full = true;
+          }
+        } else if( activeLog == 2 ){
+          // is this the last data we will put in before considering the
+          // buffer full?
+          logBuf2[logBuf2Pos++] = PTYPE_TMP; // set packet type byte
+          memcpy(&logBuf2[logBuf2Pos], &data, sizeof (tc_t));
+          logBuf2Pos += sizeof (tc_t);
+          if( logBuf2Pos >= LOGBUF_FULL_SIZE ){
+            activeLog = 1;
+            logBuf2Pos = 0;
+            gb2Full = true;
+          }
+        }
+
+        xSemaphoreGive( wbufSem );
+      }
     }
 
     taskYIELD();
@@ -747,7 +779,7 @@ static void logThread( void *pvParameters )
   }
   #endif
 
-  char* filename = LOGFILE_NAME;
+  char filename[10] = "TLM00.CSV";
   
   // INIT CARD
   while (!SD.begin(PIN_SD_CS)) {
@@ -770,16 +802,41 @@ static void logThread( void *pvParameters )
     ready = true;
   //}
   
+
+#if DEBUG
+if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+  Serial.print("About to decide on filename, init is: ");
+  Serial.println(filename);
+  xSemaphoreGive( dbSem );
+}
+#endif
   
   // CREATE UNIQUE FILE NAMES (UP TO 100)
   for( uint8_t i=0; i < 100; i++) {
     filename[3] = '0' + i/10;
     filename[4] = '0' + i%10;
+
+#if DEBUG
+if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+  Serial.print("testing: ");
+  Serial.println(filename);
+  xSemaphoreGive( dbSem );
+}
+#endif
+
     // create if does not exist, do not open existing, write, sync after write
     if (! SD.exists(filename)) {
       break;
     }
   }
+
+  #if DEBUG
+  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+    Serial.print("Decided on filename: ");
+    Serial.println(filename);
+    xSemaphoreGive( dbSem );
+  }
+  #endif
 
   // main thread loop
   // check if a buffer is full and if it is switch the active buffer that the threads dump data to to
@@ -787,6 +844,7 @@ static void logThread( void *pvParameters )
   while(1) {
 
     if( !gb1Full && !gb2Full ){
+      myDelayMs(10);
       taskYIELD();
       continue;
     }
@@ -799,7 +857,7 @@ static void logThread( void *pvParameters )
       #if DEBUG
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         Serial.print("ERROR: sd logging thread couldn't open logfile for writing: ");
-        Serial.println(filenames[0]);
+        Serial.println(filename);
         xSemaphoreGive( dbSem );
       }
       #endif
@@ -813,17 +871,6 @@ static void logThread( void *pvParameters )
 
       written = logfile.write(logBuf1, LOGBUF_SIZE);
 
-      #if DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("SD: wrote  ");
-        Serial.print(written);
-        Serial.print("/");
-        Serial.print(LOGBUF_SIZE);
-        Serial.println(" bytes from logBuf1");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-
       // this would omit leaving gaps in the log file, but then we won't be writing
       // on nice block boundaries within the SD card
       //endWriteOffset1 += logBuf1Pos;
@@ -835,6 +882,20 @@ static void logThread( void *pvParameters )
       // been recetn data written to
       memset(logBuf1, 0, LOGBUF_SIZE);
 
+      #if DEBUG
+      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+        Serial.print("SD: wrote  ");
+        Serial.print(written);
+        Serial.print("/");
+        Serial.print(LOGBUF_SIZE);
+        Serial.print(" bytes from logBuf1");
+        Serial.print("endWriteOffset1 is ");
+        Serial.println(endWriteOffset1);
+        xSemaphoreGive( dbSem );
+      }
+      #endif
+
+      gb1Full = false;
     }
 
     // check the other buffer
@@ -843,17 +904,6 @@ static void logThread( void *pvParameters )
       logfile.seek(endWriteOffset2);
 
       written = logfile.write(logBuf2, LOGBUF_SIZE);
-
-      #if DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("SD: wrote  ");
-        Serial.print(written);
-        Serial.print("/");
-        Serial.print(LOGBUF_SIZE);
-        Serial.println(" bytes from logBuf2");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
 
       // this would omit leaving gaps in the log file, but then we won't be writing
       // on nice block boundaries within the SD card
@@ -866,6 +916,20 @@ static void logThread( void *pvParameters )
       // been recetn data written to
       memset(logBuf2, 0, LOGBUF_SIZE);
 
+      #if DEBUG
+      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+        Serial.print("SD: wrote  ");
+        Serial.print(written);
+        Serial.print("/");
+        Serial.print(LOGBUF_SIZE);
+        Serial.println(" bytes from logBuf2");
+        Serial.print("endWriteOffset2 is ");
+        Serial.println(endWriteOffset2);
+        xSemaphoreGive( dbSem );
+      }
+      #endif
+
+      gb2Full = false;
     }
 
     // done writing to this file
@@ -938,349 +1002,6 @@ static void parThread( void *pvParameters )
 }
 
 
-
-/**********************************************************************************
- *  Radio task
-*/
-static void radThread( void *pvParameters )
-{
-
-  unsigned long lastSendTime = 0;
-  tlm_t dataOut;
-  nmea::GgaData ggaData;
-  nmea::RmcData rmcData;
-  tc_t tmpData;
-  spec_t specData;
-  
-    /* 0: waiting for +OK from reset
-     1: configuring address
-     2:   waiting for address config +OK
-     3: configuring network id
-     4:   waiting for network id config +OK
-     5: configuring rf params
-     6:   waiting for rf param config +OK
-     7: ready
-  */
-  int state = 0;  
-  
-  #ifdef DEBUG
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    SERIAL.println("Radio thread started");
-    xSemaphoreGive( dbSem );
-  }
-  #endif
-  
-  digitalWrite(PIN_LORA_RST, LOW);
-  myDelayMs(100);
-  digitalWrite(PIN_LORA_RST, HIGH);
-  
-    
-  //SERIAL_LOR.print("AT+RESET\r\n");
-  //SERIAL_LOR.flush();
-  
-  #ifdef DEBUG_RAD_VERBOSE
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    SERIAL.println("LORA: Reset radio");
-    xSemaphoreGive( dbSem );
-  }
-  #endif
-  
-  
-  memset(rbuf, 0, RBUF_SIZE);
-  memset(sbuf, 0, SBUF_SIZE);
-  
-  #ifdef DEBUG_RAD_VERBOSE
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    SERIAL.println("LORA: zerod buffers");
-    xSemaphoreGive( dbSem );
-  }
-  #endif
-  
-  while(1) {
-    // check the data source queue and see if there is something to send
-    // in capsule firmware this will need to peek at many other queus to aggregate the needed data,
-    // here we just spoof values in the struct and send it
-    // only send once per second
-    
-    /*#ifdef DEBUG
-    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-      SERIAL.print("STATE = ");
-      SERIAL.print(state);
-      SERIAL.print(", LOR_RADIO.peek()= ");
-      SERIAL.println(SERIAL_LOR.peek());
-      xSemaphoreGive( dbSem );
-    }
-    #endif*/
-    
-    if( state == 1 ){
-      int len = sprintf(sbuf, "AT+ADDRESS=1\r\n");
-      SERIAL_LOR.write(sbuf, len);
-      state = 2;
-      #ifdef DEBUG_RAD_VERBOSE
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.println("LORA: sent at+address, setting state to 2");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-      //taskYIELD();
-      myDelayMs(10);
-    }
-    else if( state == 3 ){
-      int len = sprintf(sbuf, "AT+NETWORKID=1\r\n");
-      SERIAL_LOR.write(sbuf, len);
-      state = 4;
-      #ifdef DEBUG_RAD_VERBOSE
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.println("LORA: sent at+networkid, setting state to 4");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-      myDelayMs(10);
-      //taskYIELD();
-    }
-    else if( state == 5 ){
-      int len = sprintf(sbuf, "AT+PARAMETER=10,7,1,7\r\n"); // less than 3km
-      SERIAL_LOR.write(sbuf, len);
-      state = 6;
-      #ifdef DEBUG_RAD_VERBOSE
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.println("LORA: sent at+param, setting state to 6");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-      myDelayMs(10);
-      //taskYIELD();
-    }
-    
-    if( xTaskGetTickCount() - lastSendTime > TLM_SEND_PERIOD && state == 7){
-      // fill up dataout structure with data to send over telem radio
-      
-      dataOut.t = xTaskGetTickCount(); 
-      
-      const int dataSize = sizeof(tlm_t);
-      sprintf(sbuf, "AT+SEND=2,%d,", dataSize); // where 2 is the address
-      int pre = strlen(sbuf);
-         
-      // TODO: can we embed binary data ?????
-      // now copy binary data from struct to send buffer
-      memcpy(&sbuf[pre], (void*)&dataOut, dataSize);
-      
-      sbuf[pre+dataSize] = '\r';
-      sbuf[pre+dataSize+1] = '\n';
-      sbuf[pre+dataSize+2] = 0;
-      
-      
-      #ifdef DEBUG_RAD
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        SERIAL.print("sending radio binary packet of size ");
-        SERIAL.println(pre+dataSize+2);
-        SERIAL.print("actual data was (bytes): ");
-        SERIAL.println(dataSize);
-        //SERIAL.println("DONE");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-      
-      // send to lora module
-      SERIAL_LOR.write(sbuf, pre+dataSize+2);
-      //SERIAL_LOR.write(sbuf, pre);
-      
-      // update timestamp, not including data fill time from above lines
-      lastSendTime = dataOut.t; 
-      
-      // go to state 8 so that we wait for a response
-      state = 8;
-      myDelayMs(100);
-      //taskYIELD();
-    }
-    
-  
-    // handle incoming message from LORA radio
-    // AT message from module
-    bool eol = false;
-    int pos = 0;
-    bool timeout = false;
-    unsigned long timeoutStart = 0;
-    if( SERIAL_LOR.peek() == '+' ){
-      
-      #ifdef DEBUG_RAD_VERBOSE
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        SERIAL.println("saw a +");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
-
-    
-      unsigned long timeoutStart = xTaskGetTickCount();
-      while(!eol && !timeout && pos < RBUF_SIZE-1) {
-        if( SERIAL_LOR.available() ){
-          rbuf[pos] = SERIAL_LOR.read();
-          if( pos > 1 ){
-            if( rbuf[pos]=='\n' && rbuf[pos-1]=='\r' ){
-              memset(&rbuf[pos+1], 0, RBUF_SIZE-(pos+1));
-              eol = true;
-            }
-          }
-          
-          if( pos++ >= RBUF_SIZE ){
-            break;
-          }
-        }
-        if( xTaskGetTickCount() - timeoutStart > RX_TIMEOUT_PERIOD ){
-          memset(rbuf, 0, RBUF_SIZE);
-          timeout = true;
-        }
-      }
-    
-    
-      if( timeout ){
-        #ifdef DEBUG_RAD
-        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          SERIAL.println("Radio rx timed out");
-          xSemaphoreGive( dbSem );
-        }
-        #endif
-      } else if (!timeout && eol) {
-        #ifdef DEBUG_RAD_VERBOSE
-        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          SERIAL.println("Radio got message!");
-          xSemaphoreGive( dbSem );
-        }
-        #endif
-      } else if( !timeout && !eol) {
-        #ifdef DEBUG_RAD
-        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          SERIAL.println("Radio receive buffer overrun!");
-          xSemaphoreGive( dbSem );
-        }
-        #endif
-      }
-      
-      // if first byte is non-zero then we received data ( also check timeout and eol vars to be safe)
-      // now process the data line received
-      if( (rbuf[0] == '+') && !timeout && eol){
-        
-        
-        int eqpos = 1;
-        while( ( rbuf[eqpos] != '=' ) &&  ( eqpos < pos) ){
-          eqpos++;
-        }
-        
-        if( eqpos == pos ){
-          #ifdef DEBUG_RAD
-          if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-            SERIAL.print("Received ");
-            SERIAL.write(rbuf, pos);
-            xSemaphoreGive( dbSem );
-          }
-          #endif
-          
-          if( state < 7 ){
-            state ++;
-            if( state == 7 ){
-              #ifdef DEBUG_RAD_VERBOSE
-              if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-                SERIAL.println("STATE = 7, successfully configured radio!");
-                xSemaphoreGive( dbSem );
-              }
-              #endif
-              taskYIELD();
-            }
-          } else if( state > 7 ){
-            state = 7;
-            #ifdef DEBUG_RAD_VERBOSE
-            if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-              SERIAL.println("STATE was 8, received +OK from a data send operation!");
-              xSemaphoreGive( dbSem );
-            }
-            #endif
-            taskYIELD(); 
-          }
-          
-        } else {
-          // found an '=', parse rest of message
-          //
-          // TODO: parse the packet and fill the rxtlm_t struct with data
-          //       and send to the logging and display queues
-          // 
-          
-          // check if its a receive message
-          if( rbuf[0]=='+' &&
-              rbuf[1]=='R' &&
-              rbuf[2]=='C' &&
-              rbuf[3]=='V'){
-            
-            // parse data
-            // example rx string: +RCV=50,5,HELLO,-99,40
-            const char *comma = ",";
-            char *token;
-            char *data;
-            int rssi;
-            int snr;
-            int addr = -1;
-            int datalen = -1;
-            
-            // parse target address
-            token = strtok((char *) &rbuf[5], comma);
-            addr = atoi(token);
-            
-            // extract data length
-            token = strtok(NULL, comma);
-            datalen = atoi(token);
-            
-            data = (char *)&rbuf[5];
-            while( *(++data) != ',');
-            while( *(++data) != ',');
-            
-            // get pointer to start of data 
-            //data = strtok(NULL, comma);
-            
-            // get the rssi
-            token = strtok((char *) &rbuf[8+datalen], comma);
-            token = strtok(NULL, comma);
-            rssi = atoi(token);
-            
-            // get the SNR
-            token = strtok(NULL, comma);
-            snr = atoi(token);
-            
-            
-            #ifdef DEBUG
-            int pblen = sprintf(printbuf, "Received %d bytes from address %d\n  rssi: %d, snr: %d\n", datalen, addr, rssi, snr);
-            if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-              SERIAL.write(printbuf, pblen);
-              //SERIAL.write(data, datalen);
-              xSemaphoreGive( dbSem );
-            }
-            #endif
-            
-            // check what the data was
-            switch (data[0]) {
-              case CMDID_DEPLOY_CHUTE:
-                #if DEBUG
-                if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-                  SERIAL.println("Got deploy drogue command");
-                  xSemaphoreGive( dbSem );
-                }
-                #endif
-                break;
-            }
-            
-             
-          }
-        }
-      }
-    } 
-    //taskYIELD();
-    myDelayMs(100);
-  }
-  
-  vTaskDelete( NULL );  
-}
-
-
-
-
 /**********************************************************************************/
 /**********************************************************************************/
 /**********************************************************************************/
@@ -1310,25 +1031,28 @@ void setup() {
   //delay(10);
   //SERIAL_GPS.begin(9600); // init gps serial
   delay(10);
-  SERIAL_IRD.begin(9600); // init iridium serial
-  delay(10);
-  SERIAL_LOR.begin(115200); // init LORA telemetry radio serial
+  SERIAL_IRD.begin(19200); // init iridium serial
+  //delay(10);
+  //SERIAL_LOR.begin(115200); // init LORA telemetry radio serial
   
   
   // Assign SERCOM functionality to enable 3 more UARTs
-  pinPeripheral(A1, PIO_SERCOM_ALT);
-  pinPeripheral(A4, PIO_SERCOM_ALT);
+  //pinPeripheral(A1, PIO_SERCOM_ALT);
+  //pinPeripheral(A4, PIO_SERCOM_ALT);
   pinPeripheral(A2, PIO_SERCOM_ALT);
   pinPeripheral(A3, PIO_SERCOM_ALT);
-  pinPeripheral(13, PIO_SERCOM);
-  pinPeripheral(12, PIO_SERCOM);
+  //pinPeripheral(13, PIO_SERCOM);
+  //pinPeripheral(12, PIO_SERCOM);
   
   // reset pin for lora radio
-  pinMode(PIN_LORA_RST, OUTPUT);
+  //pinMode(PIN_LORA_RST, OUTPUT);
   
   // battery voltage divider 
   pinMode(PIN_VBAT, INPUT);
   
+  Wire.begin();
+  Wire.setClock(100000);
+
   delay(3000);
   
   #ifdef DEBUG
@@ -1339,6 +1063,10 @@ void setup() {
   memset(logBuf1, 0, LOGBUF_SIZE);
   memset(logBuf2, 0, LOGBUF_SIZE);
 
+  led.begin();
+  led.show();
+
+  ledError(ERR_BOOT);
 
   // initialize all MCP9600 chips on the TC to digital breakout
   bool ok = true;
@@ -1431,10 +1159,10 @@ void setup() {
   xTaskCreate(irdThread, "Iridium thread", 512, NULL, tskIDLE_PRIORITY, &Handle_irdTask);
   xTaskCreate(parThread, "Parachute Deployment", 512, NULL, tskIDLE_PRIORITY+2, &Handle_parTask);
   //xTaskCreate(barThread, "Capsule internals", 512, NULL, tskIDLE_PRIORITY, &Handle_barTask);
-  xTaskCreate(radThread, "Telem radio", 1000, NULL, tskIDLE_PRIORITY, &Handle_radTask);
+  //xTaskCreate(radThread, "Telem radio", 1000, NULL, tskIDLE_PRIORITY, &Handle_radTask);
   //xTaskCreate(taskMonitor, "Task Monitor", 256, NULL, tskIDLE_PRIORITY + 4, &Handle_monitorTask);
   
-  ledOk();
+  //ledOk();
 
   // Start the RTOS, this function will never return and will schedule the tasks.
   vTaskStartScheduler();

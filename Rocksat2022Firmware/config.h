@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-//#define DEBUG 1 // usb serial debug switch
+#define DEBUG 1 // usb serial debug switch
 #ifdef DEBUG
   //#define DEBUG_GPS 1 // print raw gga to serial
   //#define DEBUG_QUEUE 1 // print info on log queue operations
@@ -11,6 +11,7 @@
   //#define DEBUG_LOG 1
   #define DEBUG_PAR 1
   #define DEBUG_RAD 1
+  //define DEBUG_TC
   //#define DEBUG_TPMS_TRANSFER
 #endif
 
@@ -44,7 +45,8 @@
 #define LOGFILE_NAME              "tlm00.csv"
 
 // log buffer size in bytes (how many to accumulate before a write)
-#define LOGBUF_SIZE 32768 / 8
+#define LOGBUF_SIZE         1024              // 32768 / 32
+#define LOGBUF_FULL_SIZE    LOGBUF_SIZE - 256
 
 // for debug radio
 #define TLM_SEND_PERIOD   5000 // in scheduler ticks (should be 1ms)
