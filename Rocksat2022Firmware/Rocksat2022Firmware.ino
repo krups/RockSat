@@ -26,7 +26,7 @@
 #include "config.h"        // project wide defs
 #include "packet.h"        // packet definitions
 #include "commands.h"      // command spec
-#include "pins.h"                  // CDH system pinouts
+#include "pins.h"          // CDH system pinouts
 
 /* Serial 2
  The GPIO on the SAMD processor support multipler serial protocols
@@ -94,6 +94,8 @@ TaskHandle_t Handle_parTask; // parachute deployment task
 //TaskHandle_t Handle_barTask; // barometric sensor task
 TaskHandle_t Handle_radTask; // telem radio task handle
 //TaskHandle_t Handle_monitorTask; // debug running task stats over uart task
+TaskHandle_t Handle_specTask_1; // Spectrometer task
+TaskHandle_t Handle_specTask_2; // Spectrometer task
 
 // freeRTOS queues
 // tasks write direct to SD buffer
@@ -142,6 +144,163 @@ volatile bool irSig = 0;
 //ArduinoNmeaParser parser(onRmcUpdate, onGgaUpdate);
 #endif
 
+#ifdef USE_SPECTROMETER
+
+uint16_t data_1[NUM_SPEC_CHANNELS]; // Define an array for the data read by the spectrometer
+uint16_t data_2[NUM_SPEC_CHANNELS]; // Define an array for the data read by the spectrometer
+
+int multipliers_1[NUM_SPEC_CHANNELS] = {0}; // Define an array for the coefficients of the simpson's rule
+int multipliers_2[NUM_SPEC_CHANNELS] = {0}; // Define an array for the coefficients of the simpson's rule
+
+float const coeff = ((850.0 - 340.0) / (NUM_SPEC_CHANNELS - 1) / 3); // Initial coefficient for the simpson's rule
+
+float result_1 = 0.0; // Result of the integral
+float result_2 = 0.0; // Result of the integral
+
+void readSpectrometer(uint8_t SPEC_TRG, uint8_t SPEC_ST, uint8_t SPEC_CLK, uint8_t SPEC_VIDEO, uint16_t *data)
+{ // This is from the spec sheet of the spectrometer
+
+    int delayTime = 1; // delay time
+
+    // Start clock cycle and set start pulse to signal start
+    digitalWrite(SPEC_CLK, LOW);
+    delayMicroseconds(delayTime);
+    digitalWrite(SPEC_CLK, HIGH);
+    delayMicroseconds(delayTime);
+    digitalWrite(SPEC_CLK, LOW);
+    digitalWrite(SPEC_ST, HIGH);
+    delayMicroseconds(delayTime);
+
+    // Sample for a period of time
+    for (int i = 0; i < 15; i++)
+    {
+
+        digitalWrite(SPEC_CLK, HIGH);
+        delayMicroseconds(delayTime);
+        digitalWrite(SPEC_CLK, LOW);
+        delayMicroseconds(delayTime);
+    }
+
+    // Set SPEC_ST to low
+    digitalWrite(SPEC_ST, LOW);
+
+    // Sample for a period of time
+    for (int i = 0; i < 85; i++)
+    {
+
+        digitalWrite(SPEC_CLK, HIGH);
+        delayMicroseconds(delayTime);
+        digitalWrite(SPEC_CLK, LOW);
+        delayMicroseconds(delayTime);
+    }
+
+    // One more clock pulse before the actual read
+    digitalWrite(SPEC_CLK, HIGH);
+    delayMicroseconds(delayTime);
+    digitalWrite(SPEC_CLK, LOW);
+    delayMicroseconds(delayTime);
+
+    // Read from SPEC_VIDEO
+    for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
+    {
+
+        data[i] = analogRead(SPEC_VIDEO) - 155;
+
+        digitalWrite(SPEC_CLK, HIGH);
+        delayMicroseconds(delayTime);
+        digitalWrite(SPEC_CLK, LOW);
+        delayMicroseconds(delayTime);
+    }
+
+    // Set SPEC_ST to high
+    digitalWrite(SPEC_ST, HIGH);
+
+    // Sample for a small amount of time
+    for (int i = 0; i < 7; i++)
+    {
+
+        digitalWrite(SPEC_CLK, HIGH);
+        delayMicroseconds(delayTime);
+        digitalWrite(SPEC_CLK, LOW);
+        delayMicroseconds(delayTime);
+    }
+
+    digitalWrite(SPEC_CLK, HIGH);
+    delayMicroseconds(delayTime);
+}
+
+void printData(uint16_t *data, float result, int id)
+{ // Print the NUM_SPEC_CHANNELS data, then print the current time, the current color, and the number of channels.
+    Serial.print("Spectrometer ");
+    Serial.print(id);
+    Serial.print(',');
+    for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
+    {
+
+        //    data_matrix(i) = data[i];
+        Serial.print(data[i]);
+        Serial.print(',');
+    }
+    Serial.print(result);
+    Serial.print(',');
+    Serial.print(millis());
+    Serial.print(',');
+    Serial.print(NUM_SPEC_CHANNELS);
+
+    Serial.print("\n");
+}
+
+float calcIntLoop(uint16_t *data, int *multipliers, float result)
+{
+
+    result = 0;
+
+    for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
+    { // Calculate each value for the simpson's rule.
+        result += multipliers[i] * data[i];
+    }
+    result *= coeff;
+    return result;
+}
+
+static void specThread1(void *pvParameters)
+{
+    while (1)
+    {
+        readSpectrometer(PIN_SPEC1_TRIG, PIN_SPEC1_START, PIN_SPEC1_CLK, PIN_SPEC1_VIDEO, data_1);
+        float res = calcIntLoop(data_1, multipliers_1, result_1);
+        #ifdef DEBUG
+        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+          printData(data_1, result_1, 1);
+          Serial.print("Spectro 1 Res: ");
+          Serial.println(res);
+          xSemaphoreGive( dbSem );
+        }
+        #endif
+        delay(1000);
+    }
+}
+
+static void specThread2(void *pvParameters)
+{
+    while (1)
+    {
+        readSpectrometer(PIN_SPEC2_TRIG, PIN_SPEC2_START, PIN_SPEC2_CLK, PIN_SPEC2_VIDEO, data_2);
+        float res = calcIntLoop(data_2, multipliers_2, result_2);
+        #ifdef DEBUG
+        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+          printData(data_2, result_2, 2);
+          Serial.print("Spectro 2 Res: ");
+          Serial.println(res);
+          xSemaphoreGive( dbSem );
+        }
+        #endif
+        delay(1000);
+    }
+}
+
+#endif
+
 
 #ifdef USE_LEDS
 
@@ -171,11 +330,6 @@ void ledOk() {
   led.setPixelColor(0, led.Color(0, 150, 0));
   led.show();
 }
-#endif
-
-
-#ifdef USE_SPECTROMETER
-uint16_t specData[NUM_SPEC_CHANNELS];
 #endif
 
 // IRIDIUM MODEM OBJECT
@@ -1026,6 +1180,36 @@ void setup() {
   
   delay(100);
   
+  int num = 0;
+
+  for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
+  { // Create the coefficients for the simpson's rule integral
+      if ((i == 0) || (i == NUM_SPEC_CHANNELS))
+      { // I = Delta x/3 * ( 1 f(x_0) + 4 f(x_1) + 2 f(x_2) + ... + 2 f(x_{n-2}) + 4 f(x_{n-1}) + f(x_n) )
+          num = 1;
+      }
+      else if (i % 2 == 1)
+      {
+          num = 4;
+      }
+      else if (i % 2 == 0)
+      {
+          num = 2;
+      }
+      multipliers_1[i] = num;
+      multipliers_2[i] = num;
+  }
+
+  pinMode(PIN_SPEC1_CLK, OUTPUT);
+  pinMode(PIN_SPEC1_START, OUTPUT);
+  pinMode(PIN_SPEC2_CLK, OUTPUT);
+  pinMode(PIN_SPEC2_START, OUTPUT);
+
+  digitalWrite(PIN_SPEC1_CLK, HIGH); // Set SPEC_CLK High
+  digitalWrite(PIN_SPEC1_START, LOW);   // Set SPEC_ST Low
+  digitalWrite(PIN_SPEC2_CLK, HIGH); // Set SPEC_CLK High
+  digitalWrite(PIN_SPEC2_START, LOW);   // Set SPEC_ST Low
+
   //delay(10);
   //SERIAL_TPM.begin(TPM_SERIAL_BAUD); // init serial to tpm subsystem
   //delay(10);
@@ -1156,6 +1340,8 @@ void setup() {
   xTaskCreate(tcThread, "TC Measurement", 512, NULL, tskIDLE_PRIORITY, &Handle_tcTask);
   xTaskCreate(logThread, "SD Logging", 1024, NULL, tskIDLE_PRIORITY, &Handle_logTask);
   //xTaskCreate(gpsThread, "GPS Reception", 512, NULL, tskIDLE_PRIORITY, &Handle_gpsTask);
+  xTaskCreate(specThread1, "Spectrometer 1", 512, NULL, tskIDLE_PRIORITY, &Handle_specTask_1);
+  xTaskCreate(specThread2, "Spectrometer 2", 512, NULL, tskIDLE_PRIORITY, &Handle_specTask_2);
   xTaskCreate(irdThread, "Iridium thread", 512, NULL, tskIDLE_PRIORITY, &Handle_irdTask);
   xTaskCreate(parThread, "Parachute Deployment", 512, NULL, tskIDLE_PRIORITY+2, &Handle_parTask);
   //xTaskCreate(barThread, "Capsule internals", 512, NULL, tskIDLE_PRIORITY, &Handle_barTask);
