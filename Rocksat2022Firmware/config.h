@@ -48,6 +48,8 @@
 #define LOGBUF_SIZE         1024              // 32768 / 32
 #define LOGBUF_FULL_SIZE    LOGBUF_SIZE - 256
 
+#define LOGFILE_NAME_LENGTH 10
+
 // for debug radio
 #define TLM_SEND_PERIOD   5000 // in scheduler ticks (should be 1ms)
 #define RX_TIMEOUT_PERIOD 500  // also in scheduler ticks
@@ -66,6 +68,7 @@
 #define ERR_2                 1
 #define ERR_3                 2
 #define ERR_4                 3
+#define ERR_SD_BUSY           4
 
 
 #endif

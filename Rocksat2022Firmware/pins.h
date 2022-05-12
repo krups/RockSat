@@ -10,10 +10,10 @@
 
 #define PIN_SPEC1_VIDEO           A0
 #define PIN_SPEC1_START           A1
-#define PIN_SPEC1_CLK             A4
+#define PIN_SPEC1_CLK             5
 #define PIN_SPEC1_TRIG             4
 
-#define PIN_SPEC2_VIDEO           5
+#define PIN_SPEC2_VIDEO           A4
 #define PIN_SPEC2_START           6
 #define PIN_SPEC2_CLK             9
 #define PIN_SPEC2_TRIG            10
