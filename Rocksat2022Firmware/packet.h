@@ -4,13 +4,15 @@
 // logging packet structure
 #include "config.h"
 
-#define PTYPE_GGA 1 // nmea::GgaData
-#define PTYPE_RMC 2 // nmea::RmcData
-#define PTYPE_ACC 3 
-#define PTYPE_IMU 4
-#define PTYPE_TMP 5
-#define PTYPE_PRS 6
-#define PTYPE_TLM 7
+#define PTYPE_GGA  (1 << 0)  // nmea::GgaData
+#define PTYPE_RMC  (1 << 1)  // nmea::RmcData
+#define PTYPE_ACC  (1 << 2)
+#define PTYPE_IMU  (1 << 3)
+#define PTYPE_TC   (1 << 4)
+#define PTYPE_PRS  (1 << 5)
+#define PTYPE_SPEC (1 << 6)
+
+
 
 // type PTYPE_ACC
 struct acc_t {
@@ -27,7 +29,7 @@ struct imu_t {
 // type PTYPE_TMP
 struct tc_t {
   unsigned long t;
-  float data[NUM_TC_CHANNELS];
+  uint16_t data[NUM_TC_CHANNELS];
 }; // NUM_TC_CHANNELS + 1 bytes
 
 //type PTYPE_BAR
@@ -69,7 +71,8 @@ struct tlm_t {
 #ifdef USE_SPECTROMETER
 struct spec_t {
   unsigned long t;
-  char data[NUM_SPEC_CHANNELS];
+  float ch1;
+  float ch2;
 };
 #endif
 

@@ -117,6 +117,7 @@ SemaphoreHandle_t depSem; // deployment status protector
 SemaphoreHandle_t sigSem; // iridium signal protector
 SemaphoreHandle_t wbufSem; // SD buffer write semaphore
 SemaphoreHandle_t ledSem; // neopixel sepaphore
+SemaphoreHandle_t sdSem;
 
 uint8_t rbuf[RBUF_SIZE];
 char sbuf[SBUF_SIZE];
@@ -125,8 +126,7 @@ char printbuf[100];
 
 static uint8_t logBuf1[LOGBUF_SIZE];
 static uint8_t logBuf2[LOGBUF_SIZE];
-volatile uint32_t endWriteOffset1 = 0; // how many bytes short of LOGBUF_SIZE was the data length of the last block write
-volatile uint32_t endWriteOffset2 = 0;
+volatile uint32_t endWriteOffset = 0; // how many bytes have we written already
 volatile uint32_t logBuf1Pos = 0, // current write index in buffer1
          logBuf2Pos = 0; // current write index in buffer2
 volatile uint8_t activeLog = 1;   // which buffer should be used fo writing, 1 or 2
@@ -134,6 +134,10 @@ volatile bool gb1Full = false, gb2Full = false;
 
 volatile bool globalDeploy = false;
 volatile bool irSig = 0;
+
+
+// include here to things are already defined
+#include "sample_datfile.h"
 
 // GPS update callbacks
 #ifdef USE_GPS
@@ -820,6 +824,36 @@ void safeKick() {
   }
 }*/
 
+static void compressionThread( void * pvParameters )
+{
+
+  #ifdef DEBUG
+  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+    Serial.println("Compression thread started");
+    xSemaphoreGive( dbSem );
+  }
+  #endif
+
+  while(1) {
+
+    // TESTING: build a packet every 15 seconds
+    myDelayMs(15000);
+
+
+    #ifdef DEBUG
+    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+      Serial.println("calling sample_datfile()");
+      xSemaphoreGive( dbSem );
+    }
+    #endif
+
+
+    //sample_datfile();
+  }
+
+  vTaskDelete( NULL );
+}
+
 // thread definition
 static void tcThread( void *pvParameters )
 {
@@ -881,7 +915,7 @@ static void tcThread( void *pvParameters )
         if( activeLog == 1 ){
           // is this the last data we will put in before considering the
           // buffer full?
-          logBuf1[logBuf1Pos++] = PTYPE_TMP; // set packet type byte
+          logBuf1[logBuf1Pos++] = PTYPE_TC; // set packet type byte
           memcpy(&logBuf1[logBuf1Pos], &data, sizeof (tc_t));
           logBuf1Pos += sizeof (tc_t);
           if( logBuf1Pos >= LOGBUF_FULL_SIZE ){
@@ -892,7 +926,7 @@ static void tcThread( void *pvParameters )
         } else if( activeLog == 2 ){
           // is this the last data we will put in before considering the
           // buffer full?
-          logBuf2[logBuf2Pos++] = PTYPE_TMP; // set packet type byte
+          logBuf2[logBuf2Pos++] = PTYPE_TC; // set packet type byte
           memcpy(&logBuf2[logBuf2Pos], &data, sizeof (tc_t));
           logBuf2Pos += sizeof (tc_t);
           if( logBuf2Pos >= LOGBUF_FULL_SIZE ){
@@ -933,8 +967,11 @@ static void logThread( void *pvParameters )
   }
   #endif
 
-  char filename[10] = "TLM00.CSV";
+  char filename[LOGFILE_NAME_LENGTH] = "TLM00.CSV";
   
+  // wait indefinitely for the SD mutex
+  while( xSemaphoreTake( sdSem, portMAX_DELAY ) != pdPASS );
+
   // INIT CARD
   while (!SD.begin(PIN_SD_CS)) {
     #if DEBUG
@@ -984,6 +1021,8 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     }
   }
 
+  xSemaphoreGive( sdSem );
+
   #if DEBUG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.print("Decided on filename: ");
@@ -1003,6 +1042,9 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       continue;
     }
 
+    // wait indefinitely for the SD mutex
+    while( xSemaphoreTake( sdSem, portMAX_DELAY ) != pdPASS );
+
     // open log file for all telem (single log file configuration)
     logfile = SD.open(filename, FILE_WRITE);
 
@@ -1021,7 +1063,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     // check if one of the buffers is full and lets write it
     if( gb1Full ){
 
-      logfile.seek(endWriteOffset1);
+      logfile.seek(endWriteOffset);
 
       written = logfile.write(logBuf1, LOGBUF_SIZE);
 
@@ -1030,7 +1072,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       //endWriteOffset1 += logBuf1Pos;
 
       // this method leaves blocks of zeros at the end of each
-      endWriteOffset1 += LOGBUF_SIZE;
+      endWriteOffset += LOGBUF_SIZE;
 
       // clean the buffer so we are gauranteed to see zeros where there hasn't
       // been recetn data written to
@@ -1042,9 +1084,9 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         Serial.print(written);
         Serial.print("/");
         Serial.print(LOGBUF_SIZE);
-        Serial.print(" bytes from logBuf1");
-        Serial.print("endWriteOffset1 is ");
-        Serial.println(endWriteOffset1);
+        Serial.print(" bytes from logBuf1, ");
+        Serial.print("endWriteOffset is ");
+        Serial.println(endWriteOffset);
         xSemaphoreGive( dbSem );
       }
       #endif
@@ -1055,7 +1097,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     // check the other buffer
     if( gb2Full ){
 
-      logfile.seek(endWriteOffset2);
+      logfile.seek(endWriteOffset);
 
       written = logfile.write(logBuf2, LOGBUF_SIZE);
 
@@ -1064,7 +1106,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       //endWriteOffset2 += logBuf2Pos;
 
       // this method leaves blocks of zeros at the end of each
-      endWriteOffset2 += LOGBUF_SIZE;
+      endWriteOffset += LOGBUF_SIZE;
 
       // clean the buffer so we are gauranteed to see zeros where there hasn't
       // been recetn data written to
@@ -1076,9 +1118,9 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         Serial.print(written);
         Serial.print("/");
         Serial.print(LOGBUF_SIZE);
-        Serial.println(" bytes from logBuf2");
-        Serial.print("endWriteOffset2 is ");
-        Serial.println(endWriteOffset2);
+        Serial.print(" bytes from logBuf2, ");
+        Serial.print("endWriteOffset is ");
+        Serial.println(endWriteOffset);
         xSemaphoreGive( dbSem );
       }
       #endif
@@ -1088,6 +1130,8 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
 
     // done writing to this file
     logfile.close();
+
+    xSemaphoreGive( sdSem );
 
     taskYIELD();
     //myDelayMs(10);
@@ -1328,6 +1372,12 @@ void setup() {
     ledSem = xSemaphoreCreateMutex();  // create mutex
     if ( ( ledSem ) != NULL )
       xSemaphoreGive( ( ledSem ) );  // make available
+  }
+  // setup sd sem
+  if ( sdSem == NULL ) {
+    sdSem = xSemaphoreCreateMutex();  // create mutex
+    if ( ( sdSem ) != NULL )
+      xSemaphoreGive( ( sdSem ) );  // make available
   }
 
   #ifdef DEBUG
