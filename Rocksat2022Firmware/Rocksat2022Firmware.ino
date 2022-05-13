@@ -158,8 +158,9 @@ int multipliers_2[NUM_SPEC_CHANNELS] = {0}; // Define an array for the coefficie
 
 float const coeff = ((850.0 - 340.0) / (NUM_SPEC_CHANNELS - 1) / 3); // Initial coefficient for the simpson's rule
 
-float result_1 = 0.0; // Result of the integral
-float result_2 = 0.0; // Result of the integral
+float result_1[2] = {0.0, 0.0};
+float result_2[2] = {0.0, 0.0};
+
 
 void readSpectrometer(uint8_t SPEC_TRG, uint8_t SPEC_ST, uint8_t SPEC_CLK, uint8_t SPEC_VIDEO, uint16_t *data)
 { // This is from the spec sheet of the spectrometer
@@ -208,7 +209,7 @@ void readSpectrometer(uint8_t SPEC_TRG, uint8_t SPEC_ST, uint8_t SPEC_CLK, uint8
     for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
     {
 
-        data[i] = analogRead(SPEC_VIDEO) - 155;
+        data[i] = analogRead(SPEC_VIDEO);
 
         digitalWrite(SPEC_CLK, HIGH);
         delayMicroseconds(delayTime);
@@ -233,19 +234,20 @@ void readSpectrometer(uint8_t SPEC_TRG, uint8_t SPEC_ST, uint8_t SPEC_CLK, uint8
     delayMicroseconds(delayTime);
 }
 
-void printData(uint16_t *data, float result, int id)
+void printData(uint16_t *data, float result[2], int id)
 { // Print the NUM_SPEC_CHANNELS data, then print the current time, the current color, and the number of channels.
     Serial.print("Spectrometer ");
     Serial.print(id);
     Serial.print(',');
     for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
     {
-
         //    data_matrix(i) = data[i];
         Serial.print(data[i]);
         Serial.print(',');
     }
-    Serial.print(result);
+    Serial.print(result[0]);
+    Serial.print('/');
+    Serial.print(result[1]);
     Serial.print(',');
     Serial.print(millis());
     Serial.print(',');
@@ -254,16 +256,20 @@ void printData(uint16_t *data, float result, int id)
     Serial.print("\n");
 }
 
-float calcIntLoop(uint16_t *data, int *multipliers, float result)
+float* calcIntLoop(uint16_t *data, int *multipliers, float result[2])
 {
-
-    result = 0;
-
-    for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
+    for (int i = 0; i < 88; i++)
     { // Calculate each value for the simpson's rule.
-        result += multipliers[i] * data[i];
+        result[0] += multipliers[i] * data[i];
     }
-    result *= coeff;
+    result[0] *= coeff;
+
+    for (int i = 88; i < NUM_SPEC_CHANNELS; i++)
+    { // Calculate each value for the simpson's rule.
+        result[1] += multipliers[i] * data[i];
+    }
+    result[1] *= coeff;
+
     return result;
 }
 
@@ -272,12 +278,14 @@ static void specThread1(void *pvParameters)
     while (1)
     {
         readSpectrometer(PIN_SPEC1_TRIG, PIN_SPEC1_START, PIN_SPEC1_CLK, PIN_SPEC1_VIDEO, data_1);
-        float res = calcIntLoop(data_1, multipliers_1, result_1);
+        float *res = calcIntLoop(data_1, multipliers_1, result_1);
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          printData(data_1, result_1, 1);
+          // printData(data_1, result_1, 1);
           Serial.print("Spectro 1 Res: ");
-          Serial.println(res);
+          Serial.print(res[0]);
+          Serial.print("/");
+          Serial.println(res[1]);
           xSemaphoreGive( dbSem );
         }
         #endif
@@ -290,12 +298,14 @@ static void specThread2(void *pvParameters)
     while (1)
     {
         readSpectrometer(PIN_SPEC2_TRIG, PIN_SPEC2_START, PIN_SPEC2_CLK, PIN_SPEC2_VIDEO, data_2);
-        float res = calcIntLoop(data_2, multipliers_2, result_2);
+        float *res = calcIntLoop(data_2, multipliers_2, result_2);
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          printData(data_2, result_2, 2);
+          // printData(data_2, result_2, 2);
           Serial.print("Spectro 2 Res: ");
-          Serial.println(res);
+          Serial.print(res[0]);
+          Serial.print("/");
+          Serial.println(res[1]);
           xSemaphoreGive( dbSem );
         }
         #endif
@@ -690,7 +700,7 @@ static void irdThread( void *pvParameters )
       #endif
 
       // TODO: fill the buff with compressed data
-      
+
       irerr = modem.sendSBDText(buf);
             
       if (irerr != ISBD_SUCCESS) { // sending failed
