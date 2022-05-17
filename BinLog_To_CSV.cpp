@@ -48,18 +48,21 @@ int main(int argc, char** argv)
 
   if( DEBUG ) std::cout << "INFO: Reading in data...";
   
+  int var = 0;
+  
   // read data except for 0s and close input file
-  for(length){
-    while(int i = 0; i < length; i++){
+  while( var < length ){
+      
+    for(int i = 0; i < length; i++){
       if(buffer[i] == 00000000){
-        //?
+      
       }
       else{
         inFile.read (buffer, i);
       }
     }
-  }
-      
+  } 
+  
   //inFile.read (buffer, length);
   inFile.close();
   
