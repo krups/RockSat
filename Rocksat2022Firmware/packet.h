@@ -4,13 +4,14 @@
 // logging packet structure
 #include "config.h"
 
-#define PTYPE_GGA  (1 << 0)  // nmea::GgaData
-#define PTYPE_RMC  (1 << 1)  // nmea::RmcData
-#define PTYPE_ACC  (1 << 2)
-#define PTYPE_IMU  (1 << 3)
-#define PTYPE_TC   (1 << 4)
-#define PTYPE_PRS  (1 << 5)
-#define PTYPE_SPEC (1 << 6)
+#define PTYPE_GGA  1  // nmea::GgaData
+#define PTYPE_RMC  2  // nmea::RmcData
+#define PTYPE_ACC  3
+#define PTYPE_IMU  4
+#define PTYPE_TC   5
+#define PTYPE_PRS  6
+#define PTYPE_SPEC 7
+#define PTYPE_BAR  22
 
 
 
@@ -29,7 +30,7 @@ struct imu_t {
 // type PTYPE_TMP
 struct tc_t {
   unsigned long t;
-  uint16_t data[NUM_TC_CHANNELS];
+  float data[NUM_TC_CHANNELS];
 }; // NUM_TC_CHANNELS + 1 bytes
 
 //type PTYPE_BAR
@@ -42,6 +43,25 @@ struct bar_t {
 
 // type PTYPE_TELEM
 #ifdef USE_GPS
+
+struct rmc_t {
+  unsigned long t; // microprocessor time in ms
+  int time[4]; // hh:mm:ss:us GPS time
+  float lat;
+  float lon;
+  float speed;
+  float course;
+};
+
+struct gga_t {
+  unsigned long t;
+  int time[4];
+  float lat;
+  float lon;
+  float hdop;
+  float alt;
+};
+
 struct tlm_t {
   unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
   float lat;     // gps latitude
@@ -55,7 +75,6 @@ struct tlm_t {
   int   irsig;   // iridium signal strength
   bool  pardep;  // parachute deployed yes/no
   tc_t tc;      // thermocouple data
-  prs_t prs;     // external pressure sensors
 };
 #else
 struct tlm_t {

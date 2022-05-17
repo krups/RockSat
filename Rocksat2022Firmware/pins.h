@@ -18,8 +18,7 @@
 #define PIN_SPEC2_CLK             9
 #define PIN_SPEC2_TRIG            10
 
-#define PIN_CHUTE_ACT1            11
-#define PIN_CHUTE_ACT2            12
+#define PIN_CHUTE_ACT             11
 
 #define PIN_NEOPIXEL              8 
 

@@ -16,7 +16,7 @@
 #endif
 
 // uncomment to enable GPS
-//#define USE_GPS
+#define USE_GPS
 
 // uncomment to enable spectrometer
 #define USE_SPECTROMETER
@@ -42,13 +42,14 @@
 
 // the logfilename to use in the format [A-Z]{3}[0-9]{2}.CSV
 // see https://regex101.com/
-#define LOGFILE_NAME              "tlm00.csv"
+#define LOGFILE_NAME              "TLM00.CSV"
+#define LOGFILE_NAME_LENGTH 10 // including null terminator
 
 // log buffer size in bytes (how many to accumulate before a write)
 #define LOGBUF_SIZE         1024              // 32768 / 32
 #define LOGBUF_FULL_SIZE    LOGBUF_SIZE - 256
 
-#define LOGFILE_NAME_LENGTH 10
+#define BLZ_HASH_BITS 12
 
 // for debug radio
 #define TLM_SEND_PERIOD   5000 // in scheduler ticks (should be 1ms)
@@ -68,7 +69,7 @@
 #define ERR_2                 1
 #define ERR_3                 2
 #define ERR_4                 3
-#define ERR_SD_BUSY           4
-
+#define ERR_SD_BUSY           -1
+#define OK                    123
 
 #endif
