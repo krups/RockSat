@@ -27,6 +27,7 @@
 #include "packet.h"        // packet definitions
 #include "commands.h"      // command spec
 #include "pins.h"          // CDH system pinouts
+#include "serial_headers.h" // Headers for serial print
 
 /* Serial 2
  The GPIO on the SAMD processor support multipler serial protocols
@@ -236,7 +237,6 @@ void readSpectrometer(uint8_t SPEC_TRG, uint8_t SPEC_ST, uint8_t SPEC_CLK, uint8
 
 void printData(uint16_t *data, float result[2], int id)
 { // Print the NUM_SPEC_CHANNELS data, then print the current time, the current color, and the number of channels.
-    Serial.print("Spectrometer ");
     Serial.print(id);
     Serial.print(',');
     for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
@@ -245,9 +245,7 @@ void printData(uint16_t *data, float result[2], int id)
         Serial.print(data[i]);
         Serial.print(',');
     }
-    Serial.print(result[0]);
-    Serial.print('/');
-    Serial.print(result[1]);
+    Serial.print(result[0] + result[1]);
     Serial.print(',');
     Serial.print(millis());
     Serial.print(',');
@@ -256,7 +254,7 @@ void printData(uint16_t *data, float result[2], int id)
     Serial.print("\n");
 }
 
-float* calcIntLoop(uint16_t *data, int *multipliers, float result[2])
+float* calcIntLoop(uint16_t *data, int *multipliers, float* result)
 {
     for (int i = 0; i < 88; i++)
     { // Calculate each value for the simpson's rule.
@@ -281,7 +279,7 @@ static void specThread1(void *pvParameters)
         float *res = calcIntLoop(data_1, multipliers_1, result_1);
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          // printData(data_1, result_1, 1);
+          printData(data_1, result_1, SPECTROMETER_1_SERIAL);
           Serial.print("Spectro 1 Res: ");
           Serial.print(res[0]);
           Serial.print("/");
@@ -289,7 +287,7 @@ static void specThread1(void *pvParameters)
           xSemaphoreGive( dbSem );
         }
         #endif
-        delay(1000);
+        delay(100);
     }
 }
 
@@ -301,7 +299,7 @@ static void specThread2(void *pvParameters)
         float *res = calcIntLoop(data_2, multipliers_2, result_2);
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-          // printData(data_2, result_2, 2);
+          printData(data_2, result_2, SPECTROMETER_2_SERIAL);
           Serial.print("Spectro 2 Res: ");
           Serial.print(res[0]);
           Serial.print("/");
@@ -309,7 +307,7 @@ static void specThread2(void *pvParameters)
           xSemaphoreGive( dbSem );
         }
         #endif
-        delay(1000);
+        delay(100);
     }
 }
 
