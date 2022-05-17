@@ -286,13 +286,7 @@ static void specThread(void *pvParameters)
         float *res = calcIntLoop(data_1, multipliers_1, result_1);
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-<<<<<<< HEAD
-          //printData(data_1, result_1, 1);
-||||||| 7019b5f
           printData(data_1, result_1, 1);
-=======
-          // printData(data_1, result_1, 1);
->>>>>>> 26a73e5aa1b03ca1a018ef69811b97552236c738
           Serial.print("Spectro 1 Res: ");
           Serial.print(res[0]);
           Serial.print("/");
@@ -302,22 +296,11 @@ static void specThread(void *pvParameters)
         #endif
 
         readSpectrometer(PIN_SPEC2_TRIG, PIN_SPEC2_START, PIN_SPEC2_CLK, PIN_SPEC2_VIDEO, data_2);
-<<<<<<< HEAD
         res = calcIntLoop(data_2, multipliers_2, result_2);
-||||||| 7019b5f
-        float res = calcIntLoop(data_2, multipliers_2, result_2);
-=======
-        float *res = calcIntLoop(data_2, multipliers_2, result_2);
->>>>>>> 26a73e5aa1b03ca1a018ef69811b97552236c738
+
         #ifdef DEBUG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-<<<<<<< HEAD
-          //printData(data_2, result_2, 2);
-||||||| 7019b5f
           printData(data_2, result_2, 2);
-=======
-          // printData(data_2, result_2, 2);
->>>>>>> 26a73e5aa1b03ca1a018ef69811b97552236c738
           Serial.print("Spectro 2 Res: ");
           Serial.print(res[0]);
           Serial.print("/");
