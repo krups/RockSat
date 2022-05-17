@@ -50,13 +50,19 @@ int main(int argc, char** argv)
   
   // read data except for 0s and close input file
       
-  for(int i = 0; i < length; i++){
-      if(buffer[i] == 00000000){}
+  //for(int i = 0; i < length; i++){
+     // if(buffer[i] == 00000000){}
     
-      else{
-        inFile.read (buffer, i);
-      }
-    }
+    //  else{
+     //   inFile.read (buffer, i);
+    //  }
+ // }
+  
+  for(int i = 784; i < length; i + 240){
+    
+    inFile.read(buffer, i);
+  
+  }
   
   //inFile.read (buffer, length);
   inFile.close();
