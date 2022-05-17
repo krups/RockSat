@@ -49,20 +49,15 @@ int main(int argc, char** argv)
   if( DEBUG ) std::cout << "INFO: Reading in data...";
   
   // read data except for 0s and close input file
-      
-  //for(int i = 0; i < length; i++){
-     // if(buffer[i] == 00000000){}
-    
-    //  else{
-     //   inFile.read (buffer, i);
-    //  }
- // }
   
-  for(int i = 784; i < length; i + 240){
-    
-    inFile.read(buffer, i);
+  //seek to beginning of file
+  //continuously check is first byte of data is 0
+  //if it is not, read the data
+  //if first byte is 0, we know we have reached buffer chunk
+  //seek to past buffer chunk
+  //do again
   
-  }
+  //plot after
   
   //inFile.read (buffer, length);
   inFile.close();
