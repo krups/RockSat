@@ -1,7 +1,7 @@
-/* 
+/*
  * Rocksat 2022 Firmware
- * 
- * 
+ *
+ *
  * Matt Ruffner, University of Kentucky Fall 2021
  */
 
@@ -11,6 +11,7 @@
 #include <Adafruit_I2CDevice.h>
 #include <Adafruit_I2CRegister.h>
 #include <Adafruit_MPL3115A2.h>
+#include <Adafruit_BNO055.h>
 #include <Adafruit_MCP9600.h>
 #include <ArduinoNmeaParser.h>
 #include <FreeRTOS_SAMD51.h>
@@ -35,7 +36,7 @@
  this configures pin 13 as RX and 12 as TX of SERCOM3 in hardware.
  These handlers then in turn trigger the handler for the Serial2 object
  in Arduino
- */
+*/
 Uart Serial2( &sercom3, 13, 12, SERCOM_RX_PAD_1, UART_TX_PAD_0 ) ;
 void SERCOM3_0_Handler()
 {
@@ -77,8 +78,8 @@ void SERCOM4_3_Handler()
 // rename serial ports
 #define SERIAL      Serial  // debug serial (USB) all uses should be conditional on DEBUG define
 #define SERIAL_IRD  Serial1 // to iridium modem
-#define SERIAL_LOR  Serial2 // lora debug
-#define SERIAL_GPS  Serial3 // to GPS
+//#define SERIAL_LOR  Serial2 // lora debug
+#define SERIAL_GPS  Serial2 // to GPS
 
 // TC to digital objects
 Adafruit_MCP9600 mcps[6];
@@ -153,6 +154,8 @@ void onGgaUpdate(nmea::GgaData const);
 // GPS parser object
 ArduinoNmeaParser parser(onRmcUpdate, onGgaUpdate);
 #endif
+
+Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
 
 #ifdef USE_SPECTROMETER
 
@@ -291,7 +294,7 @@ static void specThread(void *pvParameters)
         Serial.println(res1[1]);
         xSemaphoreGive( dbSem );
       }
-      #endif    
+      #endif
       readSpectrometer(PIN_SPEC2_TRIG, PIN_SPEC2_START, PIN_SPEC2_CLK, PIN_SPEC2_VIDEO, data_2);
       float *res2 = calcIntLoop(data_2, multipliers_2, result_2);
 
@@ -356,7 +359,8 @@ void onRmcUpdate(nmea::RmcData const rmc)
   #ifdef DEBUG_GPS
   //if (rmc.is_valid) {
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 200 ) == pdTRUE ) {
-      writeRmc(rmc, SERIAL);  
+      Serial.print("GOT RMC");
+      writeRmc(rmc, SERIAL);
       xSemaphoreGive( dbSem );
     }
   //}
@@ -486,6 +490,7 @@ void onGgaUpdate(nmea::GgaData const gga)
   #ifdef DEBUG_GPS
   //if (gga.fix_quality != nmea::FixQuality::Invalid) {
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 200 ) == pdTRUE ) {
+      Serial.println("GOT GGA");
       writeGga(gga, Serial);
       xSemaphoreGive( dbSem );
     }
@@ -590,7 +595,7 @@ static void gpsThread( void *pvParameters )
     xSemaphoreGive( dbSem );
   }
   #endif
-  
+
   while(1) {
     if ( xSemaphoreTake( gpsSerSem, ( TickType_t ) 100 ) == pdTRUE ) {
       while (SERIAL_GPS.available()) {
@@ -598,11 +603,9 @@ static void gpsThread( void *pvParameters )
       }
       xSemaphoreGive( gpsSerSem );
     }
-    
-    myDelayMs(10);
   }
-  
-  vTaskDelete( NULL );  
+
+  vTaskDelete( NULL );
 }
 
 #endif
@@ -617,12 +620,27 @@ static void gpsThread( void *pvParameters )
 
 static void imuThread( void *pvParameters )
 {
+  bool ok = false;
+
   #ifdef DEBUG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.println("IMU thread started");
     xSemaphoreGive( dbSem );
   }
   #endif
+
+  if ( xSemaphoreTake( i2c1Sem, ( TickType_t ) 100 ) == pdTRUE ) {
+    /* Initialise the sensor */
+    if(!bno.begin())
+    {
+     /* There was a problem detecting the BNO055 ... check your connections */
+     ok = false;
+    } else {
+      // all good
+      ok = true;
+    }
+    xSemaphoreGive( i2c1Sem );
+  }
 
   while(1) {
     myDelayMs(10);
@@ -644,34 +662,34 @@ static void irdThread( void *pvParameters )
   char buf[330];
   int mSq = 0, irerr; // signal quality, modem operation return code
   unsigned long lastSignalCheck = 0, lastPacketSend = 0;
-    
+
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.println("Iridium thread started");
     xSemaphoreGive( dbSem );
   }
   #endif
-  
+
   myDelayMs(1000); // give modem time to power up
-    
+
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.println("Iridium thread: trying to start modem!...");
     xSemaphoreGive( dbSem );
   }
   #endif
-    
+
   // init the iridium library and check signal strength
   irerr = modem.begin();
-  
+
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     SERIAL.println("IRIDIUM: called modem.begin()");
     xSemaphoreGive( dbSem );
   }
   #endif
-    
-  
+
+
   while( irerr != ISBD_SUCCESS ){
     #ifdef DEBUG_IRD
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -679,7 +697,7 @@ static void irdThread( void *pvParameters )
       xSemaphoreGive( dbSem );
     }
     #endif
-    
+
     if( irerr == ISBD_NO_MODEM_DETECTED ){
       #ifdef DEBUG_IRD
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -688,26 +706,26 @@ static void irdThread( void *pvParameters )
       }
       #endif
     }
-    
+
     irerr = modem.begin();
-    
+
     myDelayMs(1000);
   }
-  
+
   #ifdef DEBUG_IRD
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     SERIAL.println("IRIDIUM: modem initialized!");
     xSemaphoreGive( dbSem );
   }
   #endif
-    
-  
+
+
   // Test the signal quality.
   // This returns a number between 0 and 5.
   // 2 or better is preferred.
   irerr = modem.getSignalQuality(mSq);
   if( irerr != ISBD_SUCCESS ){
-    
+
     #ifdef DEBUG_IRD
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       SERIAL.println("IRIDIUM: SignalQuality failed: error " + String(irerr));
@@ -717,8 +735,8 @@ static void irdThread( void *pvParameters )
       xSemaphoreGive( dbSem );
     }
     #endif
-    
-    
+
+
   } else {
     #ifdef DEBUG_IRD
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -730,18 +748,18 @@ static void irdThread( void *pvParameters )
     }
     #endif
   }
-  
+
   //
   // MAIN TASK LOOP
   //
   while(1) {
     // handle a thread asking to send a packet, also periodically check the signal strength
-    
+
     // periodically check the signal strength
     if( xTaskGetTickCount() - lastSignalCheck > CHECK_SIGNAL_PERIOD ){
       irerr = modem.getSignalQuality(mSq);
       if( irerr != ISBD_SUCCESS ){
-        
+
         #ifdef DEBUG_IRD
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
           SERIAL.println("IRIDIUM: get SignalQuality failed: error " + String(irerr));
@@ -750,7 +768,7 @@ static void irdThread( void *pvParameters )
           //return;
           xSemaphoreGive( dbSem );
         }
-        #endif 
+        #endif
       } else {
         #ifdef DEBUG_IRD
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -762,22 +780,22 @@ static void irdThread( void *pvParameters )
         }
         #endif
       }
-      
+
       if ( xSemaphoreTake( sigSem, ( TickType_t ) 100 ) == pdTRUE ) {
         irSig = mSq;
         xSemaphoreGive( sigSem );
       }
-      
+
       lastSignalCheck = xTaskGetTickCount();
     }
-    
-    
-    // 
+
+
+    //
     // IS IT TIME TO SEND A PACKKAGE??
-    if( xTaskGetTickCount() - lastPacketSend > IRIDIUM_PACKET_PERIOD && 
-        (mSq > 0) && 
+    if( xTaskGetTickCount() - lastPacketSend > IRIDIUM_PACKET_PERIOD &&
+        (mSq > 0) &&
         SEND_PACKETS ){
-      
+
       #ifdef DEBUG_IRD
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       SERIAL.println("IRIDIUM: sending packet");
@@ -788,14 +806,14 @@ static void irdThread( void *pvParameters )
       // TODO: fill the buff with compressed data
 
       irerr = modem.sendSBDText(buf);
-            
+
       if (irerr != ISBD_SUCCESS) { // sending failed
         #ifdef DEBUG_IRD
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
           SERIAL.println("IRIDIUM: failed to send packet :( error " + String(irerr));
           xSemaphoreGive( dbSem );
         }
-        #endif 
+        #endif
       }
       else { // send success
         #ifdef DEBUG_IRD
@@ -803,18 +821,18 @@ static void irdThread( void *pvParameters )
           SERIAL.println("IRIDIUM: successfully sent a packet!!!!!!");
           xSemaphoreGive( dbSem );
         }
-        #endif 
+        #endif
         // only update lastPacketSned timestamp if we were successful so that
         // the modem will try again asap
         lastPacketSend = xTaskGetTickCount();
       }
     }
-    
+
     myDelayMs(50);
-    
+
   } // end task loop
-  
-  vTaskDelete( NULL );  
+
+  vTaskDelete( NULL );
 }
 
 /**********************************************************************************
@@ -964,31 +982,31 @@ static void compressionThread( void * pvParameters )
 
       packetsToSample++;
 
-      #ifdef DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("calling sample_datfile(), asking for ");
-        Serial.print(packetsToSample);
-        Serial.println(" packets.");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
+//      #ifdef DEBUG
+//      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//        Serial.print("calling sample_datfile(), asking for ");
+//        Serial.print(packetsToSample);
+//        Serial.println(" packets.");
+//        xSemaphoreGive( dbSem );
+//      }
+//      #endif
 
       // TODO: need to sample spec data too, first just do TC
       ptypeToSample = PTYPE_TC;
 
       // sample the datfile, requesting packetsToSample samples of type ptypeToSample
-      taskENTER_CRITICAL();
+      //taskENTER_CRITICAL();
       bytesRead = sample_datfile(ptypeToSample, packetsToSample, uc_buf);
-      taskEXIT_CRITICAL();
+      //taskEXIT_CRITICAL();
 
-      #ifdef DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("Got ");
-        Serial.print(bytesRead);
-        Serial.println(" bytes back in buffer, compressing...");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
+//      #ifdef DEBUG
+//      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//        Serial.print("Got ");
+//        Serial.print(bytesRead);
+//        Serial.println(" bytes back in buffer, compressing...");
+//        xSemaphoreGive( dbSem );
+//      }
+//      #endif
 
       if( bytesRead == ERR_SD_BUSY ){
         #ifdef DEBUG
@@ -1011,7 +1029,8 @@ static void compressionThread( void * pvParameters )
 
       #ifdef DEBUG
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("Compressed down to  ");
+        Serial.print(bytesRead);
+        Serial.print(" compressed down to  ");
         Serial.print(pack_size);
         Serial.println(" bytes.");
         xSemaphoreGive( dbSem );
@@ -1035,14 +1054,14 @@ static void compressionThread( void * pvParameters )
     if( pack_size > (SBD_TX_SZ - 2) ){
       packetsToSample--;
 
-      #ifdef DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("calling sample_datfile(), asking for ");
-        Serial.print(packetsToSample);
-        Serial.println(" packets.");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
+//      #ifdef DEBUG
+//      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//        Serial.print("calling sample_datfile(), asking for ");
+//        Serial.print(packetsToSample);
+//        Serial.println(" packets.");
+//        xSemaphoreGive( dbSem );
+//      }
+//      #endif
 
       // TODO: need to sample spec data too, first just do TC
       ptypeToSample = PTYPE_TC;
@@ -1052,14 +1071,14 @@ static void compressionThread( void * pvParameters )
       bytesRead = sample_datfile(ptypeToSample, packetsToSample, uc_buf);
       taskEXIT_CRITICAL();
 
-      #ifdef DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("Got ");
-        Serial.print(bytesRead);
-        Serial.println(" bytes back in buffer, compressing...");
-        xSemaphoreGive( dbSem );
-      }
-      #endif
+//      #ifdef DEBUG
+//      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//        Serial.print("Got ");
+//        Serial.print(bytesRead);
+//        Serial.println(" bytes back in buffer, compressing...");
+//        xSemaphoreGive( dbSem );
+//      }
+//      #endif
 
       if( bytesRead == ERR_SD_BUSY ){
         #ifdef DEBUG
@@ -1227,14 +1246,14 @@ static void logThread( void *pvParameters )
   uint32_t written = 0;
   uint32_t filesize = 0;
   File logfile;
-  
+
   #ifdef DEBUG_LOG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.println("sd logging thread thread started");
     xSemaphoreGive( dbSem );
   }
   #endif
-  
+
   // wait indefinitely for the SD mutex
   while( xSemaphoreTake( sdSem, portMAX_DELAY ) != pdPASS );
 
@@ -1248,7 +1267,7 @@ static void logThread( void *pvParameters )
     #endif
     ready = false;
     myDelayMs(1000);
-  } 
+  }
   //else {
     #if DEBUG
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -1258,7 +1277,7 @@ static void logThread( void *pvParameters )
     #endif
     ready = true;
   //}
-  
+
 
 #if DEBUG
 if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -1267,7 +1286,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
   xSemaphoreGive( dbSem );
 }
 #endif
-  
+
   // CREATE UNIQUE FILE NAMES (UP TO 100)
   for( uint8_t i=0; i < 100; i++) {
     filename[3] = '0' + i/10;
@@ -1414,8 +1433,8 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
 
     myDelayMs(10);
   }
-  
-  vTaskDelete( NULL );  
+
+  vTaskDelete( NULL );
 }
 
 
@@ -1436,20 +1455,20 @@ static void parThread( void *pvParameters )
     xSemaphoreGive( dbSem );
   }
   #endif
-  
+
   while(1) {
     // peek at gga and pressure queues to see if activation criteria have been met
-    
+
     myDelayMs(50);
-    
+
     if (deployed) continue;
-    
+
     // TODO: implement parachute logic
 
     if ( /* received deploy over radio */ false ) {
       deployed = true;
     }
-    
+
     if( deployed ){
       #ifdef DEBUG
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -1459,21 +1478,21 @@ static void parThread( void *pvParameters )
         xSemaphoreGive( dbSem );
       }
       #endif
-      
+
       if ( xSemaphoreTake( depSem, ( TickType_t ) portMAX_DELAY ) == pdTRUE ) {
         globalDeploy = true;
         xSemaphoreGive( depSem );
       }
-      
+
       // now start paracture deployment sequence
       // first trigger c02 servo
-      
+
       linAct.write(ACT_POS_ACT);
     }
-    
+
   }
-  
-  vTaskDelete( NULL );  
+
+  vTaskDelete( NULL );
 }
 
 
@@ -1494,9 +1513,9 @@ void setup() {
   #if DEBUG
   SERIAL.begin(115200); // init debug serial
   #endif
-  
+
   delay(100);
-  
+
   int num = 0;
 
   for (int i = 0; i < NUM_SPEC_CHANNELS; i++)
@@ -1527,33 +1546,34 @@ void setup() {
   digitalWrite(PIN_SPEC2_CLK, HIGH); // Set SPEC_CLK High
   digitalWrite(PIN_SPEC2_START, LOW);   // Set SPEC_ST Low
 
-  //delay(10);
+  // Assign SERCOM functionality to enable 3 more UARTs
+  //pinPeripheral(A1, PIO_SERCOM_ALT);
+  //pinPeripheral(A4, PIO_SERCOM_ALT);
+  //pinPeripheral(A2, PIO_SERCOM_ALT);
+  //pinPeripheral(A3, PIO_SERCOM_ALT);
+  pinPeripheral(13, PIO_SERCOM);
+  pinPeripheral(12, PIO_SERCOM);
+
+  delay(10);
   SERIAL_GPS.begin(9600); // init gps serial
   delay(10);
   SERIAL_IRD.begin(19200); // init iridium serial
   //delay(10);
   //SERIAL_LOR.begin(115200); // init LORA telemetry radio serial
-  
-  
-  // Assign SERCOM functionality to enable 3 more UARTs
-  //pinPeripheral(A1, PIO_SERCOM_ALT);
-  //pinPeripheral(A4, PIO_SERCOM_ALT);
-  pinPeripheral(A2, PIO_SERCOM_ALT);
-  pinPeripheral(A3, PIO_SERCOM_ALT);
-  pinPeripheral(13, PIO_SERCOM);
-  pinPeripheral(12, PIO_SERCOM);
-  
+
+
+
   // reset pin for lora radio
   //pinMode(PIN_LORA_RST, OUTPUT);
-  
-  // battery voltage divider 
+
+  // battery voltage divider
   pinMode(PIN_VBAT, INPUT);
-  
+
   Wire.begin();
   Wire.setClock(100000);
 
   delay(3000);
-  
+
   #ifdef DEBUG
   SERIAL.println("Starting...");
   #endif
@@ -1584,11 +1604,11 @@ void setup() {
     SERIAL.println("failed to start all MCP devices");
     #endif
   }
-  
+
   #ifdef DEBUG
   SERIAL.println("Created queues...");
   #endif
-  
+
   // SETUP RTOS SEMAPHORES
   // setup cdh serial port smphr
   if ( tpmSerSem == NULL ) {
@@ -1654,14 +1674,13 @@ void setup() {
   #ifdef DEBUG
   SERIAL.println("Created semaphores...");
   #endif
-  
+
   /**************
   * CREATE TASKS
   **************/
   xTaskCreate(tcThread, "TC Measurement", 512, NULL, tskIDLE_PRIORITY, &Handle_tcTask);
-  xTaskCreate(logThread, "SD Logging", 1024, NULL, tskIDLE_PRIORITY-1, &Handle_logTask);
+  xTaskCreate(logThread, "SD Logging", 512, NULL, tskIDLE_PRIORITY-1, &Handle_logTask);
 
-  xTaskCreate(gpsThread, "GPS Reception", 512, NULL, tskIDLE_PRIORITY, &Handle_gpsTask);
   xTaskCreate(specThread, "Spectrometer 1", 512, NULL, tskIDLE_PRIORITY, &Handle_specTask);
   xTaskCreate(irdThread, "Iridium thread", 512, NULL, tskIDLE_PRIORITY, &Handle_irdTask);
   xTaskCreate(parThread, "Parachute Deployment", 512, NULL, tskIDLE_PRIORITY, &Handle_parTask);
@@ -1669,21 +1688,24 @@ void setup() {
   //xTaskCreate(barThread, "Capsule internals", 512, NULL, tskIDLE_PRIORITY, &Handle_barTask);
   //xTaskCreate(radThread, "Telem radio", 1000, NULL, tskIDLE_PRIORITY, &Handle_radTask);
   //xTaskCreate(taskMonitor, "Task Monitor", 256, NULL, tskIDLE_PRIORITY + 4, &Handle_monitorTask);
-  xTaskCreate(compressionThread, "Data Compression", 1024, NULL, tskIDLE_PRIORITY, &Handle_compTask);
+  xTaskCreate(compressionThread, "Data Compression", 512, NULL, tskIDLE_PRIORITY, &Handle_compTask);
+
+
+  xTaskCreate(gpsThread, "GPS Reception", 512, NULL, tskIDLE_PRIORITY, &Handle_gpsTask);
 
   //ledOk();
 
   // Start the RTOS, this function will never return and will schedule the tasks.
   vTaskStartScheduler();
-  
+
   // error scheduler failed to start
   while(1)
   {
-	  SERIAL.println("Scheduler Failed! \n");
-	  delay(1000);
+    SERIAL.println("Scheduler Failed! \n");
+    delay(1000);
   }
-  
-  
+
+
 }
 
 void loop() {
