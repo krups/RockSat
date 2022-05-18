@@ -285,9 +285,9 @@ static void specThread(void *pvParameters)
 
       calcIntLoop(data_1, multipliers_1, res1);
 
-      #ifdef DEBUG
+      #ifdef DEBUG_SPEC
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        printData(data_1, res1, SPECTROMETER_1_SERIAL);
+        //printData(data_1, res1, SPECTROMETER_1_SERIAL);
         Serial.print("Spectro 1 Res: ");
         Serial.print(res1[0]);
         Serial.print("/");
@@ -303,7 +303,7 @@ static void specThread(void *pvParameters)
 
       calcIntLoop(data_2, multipliers_2, res2);
 
-      #ifdef DEBUG
+      #ifdef DEBUG_SPEC
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         printData(data_2, res2, SPECTROMETER_2_SERIAL);
         Serial.print("Spectro 2 Res: ");
@@ -643,7 +643,7 @@ static void imuThread( void *pvParameters )
 
       // now configure the bno to be +/-16g (4g is default)
       // gyr setting of +/-2000 dps is default
-      bno.setAccFSR(Adafruit_BNO055::ACC_FSR_16G);
+      //bno.setAccFSR(Adafruit_BNO055::ACC_FSR_16G);
     }
 
     // init H3LIS100 accelerometer
@@ -742,20 +742,20 @@ static void imuThread( void *pvParameters )
 
 
 
-    #ifdef DEBUG
+    #ifdef DEBUG_IMU
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       Serial.print("BNO055 aX: ");
       Serial.print(rawAcc.x(), 4);
-      Serial.print("\tgY: ");
+      Serial.print("\taY: ");
       Serial.print(rawAcc.y(), 4);
-      Serial.print("\tgZ: ");
+      Serial.print("\taZ: ");
       Serial.println(rawAcc.z(), 4);
 
       Serial.print("BNO055 gX: ");
       Serial.print(rawGyr.x(), 4);
-      Serial.print("\taY: ");
+      Serial.print("\tgY: ");
       Serial.print(rawGyr.y(), 4);
-      Serial.print("\taZ: ");
+      Serial.print("\tgZ: ");
       Serial.println(rawGyr.z(), 4);
 
       Serial.print("H3LIS100 aX: ");
@@ -1241,6 +1241,14 @@ static void compressionThread( void * pvParameters )
 
     input_size = bytesRead;
 
+    #ifdef DEBUG
+    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+      Serial.print("COMP: starting compression, input_size = ");
+      Serial.println(input_size);
+      xSemaphoreGive( dbSem );
+    }
+    #endif
+
     // keep sampling and compressing data until compressed data
     // is larger than 338 bytes
     while(pack_size < (SBD_TX_SZ - 2) && !acceptShort ){
@@ -1305,7 +1313,7 @@ static void compressionThread( void * pvParameters )
         Serial.print(bytesRead+input_size);
         Serial.print(" compressed (");
         Serial.print(packetsToSample);
-        Serial.print(") down to  ");
+        Serial.print(") down to ");
         Serial.print(pack_size);
         Serial.println(" bytes.");
         xSemaphoreGive( dbSem );

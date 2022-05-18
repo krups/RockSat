@@ -15,7 +15,7 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
   int numSampled = 0;
   uint32_t fileSize = 0;
   int curBlock = 0;
-  int numPackets = 0;
+  int numPackets = 0, curPacket = 0;
   int i, offset, stride, strideCount;
   double fstride;
   char type;
@@ -68,10 +68,16 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
         // check if its a packet we want to sample
         if( type == ptype ) numPackets++;
 
-        if     ( type==PTYPE_TC )   offset = sizeof (tc_t);
+        // calculate number of bytes until next packet
+        if     ( type==PTYPE_TC   ) offset = sizeof (tc_t);
         else if( type==PTYPE_SPEC ) offset = sizeof (spec_t);
-        else if( type==PTYPE_PRS )  offset = sizeof (bar_t);
-        else break; // we are lost, break and seek to next block
+        else if( type==PTYPE_ACC  ) offset = sizeof (acc_t);
+        else if( type==PTYPE_IMU  ) offset = sizeof (imu_t);
+        else if( type==PTYPE_GGA  ) offset = sizeof (gga_t);
+        else if( type==PTYPE_RMC  ) offset = sizeof (rmc_t);
+        else if( type==PTYPE_BAR  ) offset = sizeof (bar_t);
+        else if( type==PTYPE_PACKET ) offset = sizeof (packet_t);
+        else break; // we are lost, break so we seek to next block
 
 //        #if DEBUG
 //        if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -153,11 +159,15 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
         else if( type==PTYPE_GGA  ) offset = sizeof (gga_t);
         else if( type==PTYPE_RMC  ) offset = sizeof (rmc_t);
         else if( type==PTYPE_BAR  ) offset = sizeof (bar_t);
+        else if( type==PTYPE_PACKET ) offset = sizeof (packet_t);
         else break; // we are lost, break so we seek to next block
+
+        if( type==ptype ) curPacket++;
 
         // check if its a packet we want to sample
         // if it is, read it into the output buffer
-        if( (type == ptype) && (strideCount == stride) ){
+        if( (type == ptype) && ( (strideCount == stride) || (numToSample==1 && curPacket==numPackets))){
+          strideCount = 0;
           if( numSampled < numToSample ){
             output[outputPos++] = type;
             bytesRead = logfile.read( &output[outputPos], offset);

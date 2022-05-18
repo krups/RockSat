@@ -15,39 +15,39 @@
 #define PTYPE_PACKET 99 // compressed packet written to logfile
 
 struct packet_t {
-  unsigned long t;
-  unsigned long size; // actual data in packet
+  uint32_t t;
+  uint32_t size; // actual data in packet
   char data[SBD_TX_SZ];
 };
 
 // type PTYPE_ACC
 struct acc_t {
-  unsigned long t;
+  uint32_t t;
   float data[3];
 }; // 4 bytes
 
 // type PTYPE_IMU
 struct imu_t {
-  unsigned long t;
+  uint32_t t;
   float data[6];
 }; // 7 bytes
 
 // type PTYPE_TMP
 struct tc_t {
-  unsigned long t;
+  uint32_t t;
   float data[NUM_TC_CHANNELS];
 }; // NUM_TC_CHANNELS + 1 bytes
 
 //type PTYPE_BAR
 struct bar_t {
-  unsigned long t;
+  uint32_t t;
   float prs;
   float alt;
   float tmp;
 }; // 4 bytes
 
 struct rmc_t {
-  unsigned long t; // microprocessor time in ms
+  uint32_t t; // microprocessor time in ms
   int time[4]; // hh:mm:ss:us GPS time
   float lat;
   float lon;
@@ -56,7 +56,7 @@ struct rmc_t {
 };
 
 struct gga_t {
-  unsigned long t;
+  uint32_t t;
   int time[4];
   float lat;
   float lon;
@@ -66,7 +66,7 @@ struct gga_t {
 
 #ifdef USE_GPS
 struct tlm_t {
-  unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
+  uint32_t t; // system time when packet was sent in # of scheduler ticks (ms)
   float lat;     // gps latitude
   float lon;     // gps longitude
   float vel;     // gps velocity
@@ -82,7 +82,7 @@ struct tlm_t {
 
 #else
 struct tlm_t {
-  unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
+  uint32_t t; // system time when packet was sent in # of scheduler ticks (ms)
   float tmp;     // capsule internal temperature
   float bat;     // battery voltage
   int   irsig;   // iridium signal strength
@@ -93,7 +93,7 @@ struct tlm_t {
 
 #ifdef USE_SPECTROMETER
 struct spec_t {
-  unsigned long t;
+  uint32_t t;
   float ch1;
   float ch2;
 };
