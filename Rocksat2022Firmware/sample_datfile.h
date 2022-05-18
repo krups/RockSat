@@ -16,7 +16,7 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
   uint32_t fileSize = 0;
   int curBlock = 0;
   int numPackets = 0;
-  int i, offset, stride;
+  int i, offset, stride, strideCount;
   double fstride;
   char type;
 
@@ -85,7 +85,7 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
         logfile.seek( logfile.position() + offset );
       }
       // seek to the next block
-      logfile.seek( ++curBlock * LOGBUF_SIZE );
+      logfile.seek( ++curBlock * LOGBUF_BLOCK_SIZE );
     }
     // close the file
     logfile.close();
@@ -111,6 +111,7 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
 
   stride = floor( (double)(numPackets) / (double)(numToSample) );
   if( stride < 1 ) stride = 1;
+  strideCount = 0;
 
 //  #if DEBUG
 //  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -145,14 +146,18 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
       while( (type = logfile.read()) != 0 ){
 
         // calculate number of bytes until next packet
-        if     ( type==PTYPE_TC )   offset = sizeof (tc_t);
+        if     ( type==PTYPE_TC   ) offset = sizeof (tc_t);
         else if( type==PTYPE_SPEC ) offset = sizeof (spec_t);
-        else if( type==PTYPE_PRS )  offset = sizeof (bar_t);
-        else break;
+        else if( type==PTYPE_ACC  ) offset = sizeof (acc_t);
+        else if( type==PTYPE_IMU  ) offset = sizeof (imu_t);
+        else if( type==PTYPE_GGA  ) offset = sizeof (gga_t);
+        else if( type==PTYPE_RMC  ) offset = sizeof (rmc_t);
+        else if( type==PTYPE_BAR  ) offset = sizeof (bar_t);
+        else break; // we are lost, break so we seek to next block
 
         // check if its a packet we want to sample
         // if it is, read it into the output buffer
-        if( type == ptype ){
+        if( (type == ptype) && (strideCount == stride) ){
           if( numSampled < numToSample ){
             output[outputPos++] = type;
             bytesRead = logfile.read( &output[outputPos], offset);
@@ -161,14 +166,17 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
           } else {
             break;
           }
-        } else {
-          // if we didn't read the packet, seek past it
+        } else { // we didnt read from the file
+          // if it was the right packet type but we need to stride past it
+          // make sure to increment the stride counter
+          if( type == ptype ) strideCount++;
+
           // slurp the rest of the packet depending on what type it is
           logfile.seek( logfile.position() + offset );
         }
       }
       // seek to the next block
-      logfile.seek( ++curBlock * LOGBUF_SIZE );
+      logfile.seek( ++curBlock * LOGBUF_BLOCK_SIZE );
     }
     // close the file
     logfile.close();

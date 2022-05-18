@@ -33,6 +33,12 @@
 #define DIAGNOSTICS false// Change this to see diagnostics
 #define SBD_TX_SZ 340
 
+// how often to build a packet (in milliseconds)
+#define PACKET_BUILD_PERIOD 20000
+
+// calibration for barometer altitude reading
+#define BAR_SEA_PRESSURE 1013.26
+
 // NUM_TC_CHANNELS + NUM_HF_CHANNELS should always be equal to the total number of MCP9600 chips (TOT_MCP_COUNT)
 #define NUM_TC_CHANNELS       6 // deg celcius
 
@@ -45,9 +51,11 @@
 #define LOGFILE_NAME              "TLM00.CSV"
 #define LOGFILE_NAME_LENGTH 10 // including null terminator
 
+#define LOGBUF_HEADER_SIZE 2048
+
 // log buffer size in bytes (how many to accumulate before a write)
-#define LOGBUF_SIZE         1024              // 32768 / 32
-#define LOGBUF_FULL_SIZE    LOGBUF_SIZE - 256
+#define LOGBUF_BLOCK_SIZE         2048              // 32768 / 32
+#define LOGBUF_FULL_SIZE    LOGBUF_BLOCK_SIZE - 512 // compressed iridium packet gauranteed to fit
 
 #define BLZ_HASH_BITS 12
 

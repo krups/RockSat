@@ -12,8 +12,13 @@
 #define PTYPE_PRS  6
 #define PTYPE_SPEC 7
 #define PTYPE_BAR  22
+#define PTYPE_PACKET 99 // compressed packet written to logfile
 
-
+struct packet_t {
+  unsigned long t;
+  unsigned long size; // actual data in packet
+  char data[SBD_TX_SZ];
+};
 
 // type PTYPE_ACC
 struct acc_t {
@@ -41,9 +46,6 @@ struct bar_t {
   float tmp;
 }; // 4 bytes
 
-// type PTYPE_TELEM
-#ifdef USE_GPS
-
 struct rmc_t {
   unsigned long t; // microprocessor time in ms
   int time[4]; // hh:mm:ss:us GPS time
@@ -62,6 +64,7 @@ struct gga_t {
   float alt;
 };
 
+#ifdef USE_GPS
 struct tlm_t {
   unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
   float lat;     // gps latitude
@@ -76,6 +79,7 @@ struct tlm_t {
   bool  pardep;  // parachute deployed yes/no
   tc_t tc;      // thermocouple data
 };
+
 #else
 struct tlm_t {
   unsigned long t; // system time when packet was sent in # of scheduler ticks (ms)
