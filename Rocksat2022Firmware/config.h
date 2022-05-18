@@ -3,7 +3,7 @@
 
 #define DEBUG 1 // usb serial debug switch
 #ifdef DEBUG
-  //#define DEBUG_GPS 1 // print raw gga to serial
+  #define DEBUG_GPS 1 // print raw gga to serial
   //#define DEBUG_QUEUE 1 // print info on log queue operations
   //#define DEBUG_VERBOSE 1
   //#define DEBUG_BARO 1
@@ -11,7 +11,7 @@
   //#define DEBUG_LOG 1
   #define DEBUG_PAR 1
   #define DEBUG_RAD 1
-  //define DEBUG_TC
+  #define DEBUG_TC
   //#define DEBUG_TPMS_TRANSFER
 #endif
 

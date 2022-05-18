@@ -22,11 +22,12 @@
 #include <Servo.h>
 #include "wiring_private.h"
 
+#include "H3LIS100.h"      // high g accel driver
 #include "delay_helpers.h" // rtos delay helpers
 #include "config.h"        // project wide defs
 #include "packet.h"        // packet definitions
 #include "commands.h"      // command spec
-#include "pins.h"          // CDH system pinouts
+#include "pins.h"          // system pinouts
 #include "serial_headers.h" // Headers for serial print
 #include "brieflz.h"
 
@@ -95,20 +96,11 @@ TaskHandle_t Handle_logTask; // sd card logging task
 TaskHandle_t Handle_gpsTask; // gps data receive task
 TaskHandle_t Handle_irdTask; // iridium transmission task
 TaskHandle_t Handle_parTask; // parachute deployment task
+TaskHandle_t Handle_imuTask; // imu and acc task
 //TaskHandle_t Handle_barTask; // barometric sensor task
 TaskHandle_t Handle_radTask; // telem radio task handle
 //TaskHandle_t Handle_monitorTask; // debug running task stats over uart task
 TaskHandle_t Handle_specTask; // Spectrometer task
-
-// freeRTOS queues
-// tasks write direct to SD buffer
-/*QueueHandle_t qTmpData; // temperature or heat flux data to be logged
-QueueHandle_t qPrsData; // pressure data to be logged
-QueueHandle_t qGgaData; // GGA GPS fix data to be logged
-QueueHandle_t qRmcData; // RMC GPS data to be logged
-QueueHandle_t qBarData; // barometric pressure data
-*/
-
 
 // freeRTOS semaphores
 SemaphoreHandle_t tpmSerSem; // data from CDH semaphore
@@ -147,17 +139,15 @@ char filename[LOGFILE_NAME_LENGTH] = LOGFILE_NAME;
 #include "sample_datfile.h"
 
 // GPS update callbacks
-#ifdef USE_GPS
 void onRmcUpdate(nmea::RmcData const);
 void onGgaUpdate(nmea::GgaData const);
 
 // GPS parser object
 ArduinoNmeaParser parser(onRmcUpdate, onGgaUpdate);
-#endif
 
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
 
-#ifdef USE_SPECTROMETER
+H3LIS100 highg = H3LIS100(0x1234); // 0x1234 is an arbitrary sensor ID, not an I2C address
 
 uint16_t data_1[NUM_SPEC_CHANNELS]; // Define an array for the data read by the spectrometer
 uint16_t data_2[NUM_SPEC_CHANNELS]; // Define an array for the data read by the spectrometer
@@ -312,10 +302,6 @@ static void specThread(void *pvParameters)
       myDelayMs(1000);
     }
 }
-#endif
-
-
-#ifdef USE_LEDS
 
 Adafruit_NeoPixel led(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
@@ -343,7 +329,6 @@ void ledOk() {
   led.setPixelColor(0, led.Color(0, 150, 0));
   led.show();
 }
-#endif
 
 // IRIDIUM MODEM OBJECT
 IridiumSBD modem(SERIAL_IRD);
@@ -359,7 +344,6 @@ void onRmcUpdate(nmea::RmcData const rmc)
   #ifdef DEBUG_GPS
   //if (rmc.is_valid) {
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 200 ) == pdTRUE ) {
-      Serial.print("GOT RMC");
       writeRmc(rmc, SERIAL);
       xSemaphoreGive( dbSem );
     }
@@ -377,7 +361,7 @@ void onRmcUpdate(nmea::RmcData const rmc)
   data.speed = rmc.speed;
   data.course = rmc.course;
 
-  // try to write the tc data to the SD log buffer that is available
+  // try to write the gps rmc data to the SD log buffer
   if ( xSemaphoreTake( wbufSem, ( TickType_t ) 10 ) == pdTRUE ) {
 
     if( activeLog == 1 ){
@@ -385,7 +369,7 @@ void onRmcUpdate(nmea::RmcData const rmc)
       // buffer full?
       logBuf1[logBuf1Pos++] = PTYPE_RMC; // set packet type byte
       memcpy(&logBuf1[logBuf1Pos], &data, sizeof (rmc_t));
-      logBuf1Pos += sizeof (tc_t);
+      logBuf1Pos += sizeof (rmc_t);
       if( logBuf1Pos >= LOGBUF_FULL_SIZE ){
         activeLog = 2;
         logBuf1Pos = 0;
@@ -396,7 +380,7 @@ void onRmcUpdate(nmea::RmcData const rmc)
       // buffer full?
       logBuf2[logBuf2Pos++] = PTYPE_RMC; // set packet type byte
       memcpy(&logBuf2[logBuf2Pos], &data, sizeof (rmc_t));
-      logBuf2Pos += sizeof (tc_t);
+      logBuf2Pos += sizeof (rmc_t);
       if( logBuf2Pos >= LOGBUF_FULL_SIZE ){
         activeLog = 1;
         logBuf2Pos = 0;
@@ -490,7 +474,6 @@ void onGgaUpdate(nmea::GgaData const gga)
   #ifdef DEBUG_GPS
   //if (gga.fix_quality != nmea::FixQuality::Invalid) {
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 200 ) == pdTRUE ) {
-      Serial.println("GOT GGA");
       writeGga(gga, Serial);
       xSemaphoreGive( dbSem );
     }
@@ -508,7 +491,7 @@ void onGgaUpdate(nmea::GgaData const gga)
   data.hdop = gga.hdop;
   data.alt = gga.altitude;
 
-  // try to write the tc data to the SD log buffer that is available
+  // try to write the gps data to the SD log buffer
   if ( xSemaphoreTake( wbufSem, ( TickType_t ) 10 ) == pdTRUE ) {
 
     if( activeLog == 1 ){
@@ -516,7 +499,7 @@ void onGgaUpdate(nmea::GgaData const gga)
       // buffer full?
       logBuf1[logBuf1Pos++] = PTYPE_GGA; // set packet type byte
       memcpy(&logBuf1[logBuf1Pos], &data, sizeof (gga_t));
-      logBuf1Pos += sizeof (tc_t);
+      logBuf1Pos += sizeof (gga_t);
       if( logBuf1Pos >= LOGBUF_FULL_SIZE ){
         activeLog = 2;
         logBuf1Pos = 0;
@@ -527,7 +510,7 @@ void onGgaUpdate(nmea::GgaData const gga)
       // buffer full?
       logBuf2[logBuf2Pos++] = PTYPE_GGA; // set packet type byte
       memcpy(&logBuf2[logBuf2Pos], &data, sizeof (gga_t));
-      logBuf2Pos += sizeof (tc_t);
+      logBuf2Pos += sizeof (gga_t);
       if( logBuf2Pos >= LOGBUF_FULL_SIZE ){
         activeLog = 1;
         logBuf2Pos = 0;
@@ -578,8 +561,6 @@ bool safeRead(bool &src, SemaphoreHandle_t &m) {
 }
 
 
-
-#ifdef USE_GPS
 /**********************************************************************************
 /**********************************************************************************
 /**********************************************************************************
@@ -597,18 +578,18 @@ static void gpsThread( void *pvParameters )
   #endif
 
   while(1) {
-    if ( xSemaphoreTake( gpsSerSem, ( TickType_t ) 100 ) == pdTRUE ) {
+    //if ( xSemaphoreTake( gpsSerSem, ( TickType_t ) 100 ) == pdTRUE ) {
       while (SERIAL_GPS.available()) {
         parser.encode((char)SERIAL_GPS.read());
       }
-      xSemaphoreGive( gpsSerSem );
-    }
+    //  xSemaphoreGive( gpsSerSem );
+    //}
+
+      vTaskDelay(10);
   }
 
   vTaskDelete( NULL );
 }
-
-#endif
 
 
 /**********************************************************************************
@@ -617,10 +598,14 @@ static void gpsThread( void *pvParameters )
 /**********************************************************************************
  * IMU Monitoring thread
 */
-
 static void imuThread( void *pvParameters )
 {
-  bool ok = false;
+  bool bno_ok = false, highg_ok = false;
+  imu::Vector<3> rawAcc;
+  imu::Vector<3> rawGyr;
+  sensors_event_t event;
+  acc_t accData;
+  imu_t imuData;
 
   #ifdef DEBUG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -630,20 +615,118 @@ static void imuThread( void *pvParameters )
   #endif
 
   if ( xSemaphoreTake( i2c1Sem, ( TickType_t ) 100 ) == pdTRUE ) {
-    /* Initialise the sensor */
-    if(!bno.begin())
-    {
-     /* There was a problem detecting the BNO055 ... check your connections */
-     ok = false;
-    } else {
-      // all good
-      ok = true;
+    // init BNO055 IMU
+    if( bno.begin() ) {
+      bno_ok = true;
     }
+
+    // init H3LIS100 accelerometer
+    if( highg.begin() ){
+      highg_ok = true;
+    }
+
     xSemaphoreGive( i2c1Sem );
   }
 
+  #ifdef DEBUG
+  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+    Serial.print("IMU: init BNO: ");
+    Serial.print(bno_ok);
+    Serial.print(", init H3LIS: ");
+    Serial.println(highg_ok);
+    xSemaphoreGive( dbSem );
+  }
+  #endif
+
   while(1) {
-    myDelayMs(10);
+    myDelayMs(500);
+
+    // try to acquire lock on i2c bus and take measurements
+    // from the IMU and high g accelerometer
+    if ( xSemaphoreTake( i2c1Sem, ( TickType_t ) 100 ) == pdTRUE ) {
+      // get low g acceleration and gyro measurements
+      rawAcc = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+      rawGyr = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+
+      // get high g accel measurements
+      highg.getEvent(&event);
+
+      xSemaphoreGive( i2c1Sem );
+    }
+
+
+    // try to write the imu and acc structs to the SD log buffer
+    if ( xSemaphoreTake( wbufSem, ( TickType_t ) 10 ) == pdTRUE ) {
+      if( activeLog == 1 ){
+        // write imu data
+        logBuf1[logBuf1Pos++] = PTYPE_IMU; // set packet type byte
+        memcpy(&logBuf1[logBuf1Pos], &imuData, sizeof (imu_t));
+        logBuf1Pos += sizeof (imu_t);
+
+        // write acc data
+        logBuf1[logBuf1Pos++] = PTYPE_ACC; // set packet type byte
+        memcpy(&logBuf1[logBuf1Pos], &accData, sizeof (acc_t));
+        logBuf1Pos += sizeof (acc_t);
+
+        // is this the last data we will put in before considering the
+        // buffer full?
+        if( logBuf1Pos >= LOGBUF_FULL_SIZE ){
+          activeLog = 2;
+          logBuf1Pos = 0;
+          gb1Full = true;
+        }
+      } else if( activeLog == 2 ){
+        // write imu data
+        logBuf2[logBuf2Pos++] = PTYPE_IMU; // set packet type byte
+        memcpy(&logBuf2[logBuf2Pos], &imuData, sizeof (imu_t));
+        logBuf2Pos += sizeof (imu_t);
+
+        // write acc data
+        logBuf2[logBuf2Pos++] = PTYPE_ACC; // set packet type byte
+        memcpy(&logBuf2[logBuf2Pos], &accData, sizeof (acc_t));
+        logBuf2Pos += sizeof (acc_t);
+
+        // is this the last data we will put in before considering the
+        // buffer full?
+        if( logBuf2Pos >= LOGBUF_FULL_SIZE ){
+          activeLog = 1;
+          logBuf2Pos = 0;
+          gb2Full = true;
+        }
+      }
+
+      xSemaphoreGive( wbufSem );
+    }
+
+
+
+    #ifdef DEBUG
+    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+      Serial.print("BNO055 aX: ");
+      Serial.print(rawAcc.x(), 4);
+      Serial.print("\tgY: ");
+      Serial.print(rawAcc.y(), 4);
+      Serial.print("\tgZ: ");
+      Serial.println(rawAcc.z(), 4);
+
+      Serial.print("BNO055 gX: ");
+      Serial.print(rawGyr.x(), 4);
+      Serial.print("\taY: ");
+      Serial.print(rawGyr.y(), 4);
+      Serial.print("\taZ: ");
+      Serial.println(rawGyr.z(), 4);
+
+      Serial.print("H3LIS100 aX: ");
+      Serial.print(event.acceleration.x, 4);
+      Serial.print("\taY: ");
+      Serial.print(event.acceleration.y, 4);
+      Serial.print("\taZ: ");
+      Serial.println(event.acceleration.z, 4);
+
+      xSemaphoreGive( dbSem );
+    }
+    #endif
+
   }
 
   vTaskDelete( NULL );
@@ -1469,6 +1552,20 @@ static void parThread( void *pvParameters )
       deployed = true;
     }
 
+    myDelayMs(500);
+    #ifdef DEBUG
+    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+      if( Serial.available() ){
+        if( Serial.read() == 'p' ){
+          deployed = true;
+        }
+
+      }
+      xSemaphoreGive( dbSem );
+    }
+    #endif
+
+
     if( deployed ){
       #ifdef DEBUG
       if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
@@ -1487,7 +1584,9 @@ static void parThread( void *pvParameters )
       // now start paracture deployment sequence
       // first trigger c02 servo
 
-      linAct.write(ACT_POS_ACT);
+      digitalWrite(PIN_CHUTE_ACT, HIGH);
+
+      //linAct.write(ACT_POS_ACT);
     }
 
   }
@@ -1506,9 +1605,12 @@ void setup() {
 
   // servo control
   pinMode(PIN_CHUTE_ACT, OUTPUT);
+  digitalWrite(PIN_CHUTE_ACT, LOW);
 
   // attach servo
-  linAct.attach(PIN_CHUTE_ACT);
+//  linAct.attach(PIN_CHUTE_ACT);
+
+//  linAct.write(ACT_POS_HOME);
 
   #if DEBUG
   SERIAL.begin(115200); // init debug serial
@@ -1546,6 +1648,15 @@ void setup() {
   digitalWrite(PIN_SPEC2_CLK, HIGH); // Set SPEC_CLK High
   digitalWrite(PIN_SPEC2_START, LOW);   // Set SPEC_ST Low
 
+  delay(100);
+
+  delay(100);
+  SERIAL_GPS.begin(9600); // init gps serial
+  delay(10);
+  SERIAL_IRD.begin(19200); // init iridium serial
+  //delay(10);
+  //SERIAL_LOR.begin(115200); // init LORA telemetry radio serial
+
   // Assign SERCOM functionality to enable 3 more UARTs
   //pinPeripheral(A1, PIO_SERCOM_ALT);
   //pinPeripheral(A4, PIO_SERCOM_ALT);
@@ -1553,14 +1664,6 @@ void setup() {
   //pinPeripheral(A3, PIO_SERCOM_ALT);
   pinPeripheral(13, PIO_SERCOM);
   pinPeripheral(12, PIO_SERCOM);
-
-  delay(10);
-  SERIAL_GPS.begin(9600); // init gps serial
-  delay(10);
-  SERIAL_IRD.begin(19200); // init iridium serial
-  //delay(10);
-  //SERIAL_LOR.begin(115200); // init LORA telemetry radio serial
-
 
 
   // reset pin for lora radio
@@ -1688,6 +1791,9 @@ void setup() {
   //xTaskCreate(barThread, "Capsule internals", 512, NULL, tskIDLE_PRIORITY, &Handle_barTask);
   //xTaskCreate(radThread, "Telem radio", 1000, NULL, tskIDLE_PRIORITY, &Handle_radTask);
   //xTaskCreate(taskMonitor, "Task Monitor", 256, NULL, tskIDLE_PRIORITY + 4, &Handle_monitorTask);
+
+  xTaskCreate(imuThread, "IMU reading", 512, NULL, tskIDLE_PRIORITY, &Handle_imuTask);
+
   xTaskCreate(compressionThread, "Data Compression", 512, NULL, tskIDLE_PRIORITY, &Handle_compTask);
 
 

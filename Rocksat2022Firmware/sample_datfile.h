@@ -29,14 +29,14 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
     xSemaphoreGive( ledSem );
   }
 
-  #if DEBUG
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    Serial.print("SAMPLE: acquiring SD lock to open file ");
-    Serial.print(filename);
-    Serial.println();
-    xSemaphoreGive( dbSem );
-  }
-  #endif
+//  #if DEBUG
+//  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//    Serial.print("SAMPLE: acquiring SD lock to open file ");
+//    Serial.print(filename);
+//    Serial.println();
+//    xSemaphoreGive( dbSem );
+//  }
+//  #endif
 
   // first open the specified log file and count how many packets of the
   // specified type exist in the file
@@ -49,14 +49,14 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
     logfile = SD.open(filename, FILE_READ);
 
     if( !logfile ){
-      #if DEBUG
-      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-        Serial.print("SAMPLE: unable to open file ");
-        Serial.print(filename);
-        Serial.println();
-        xSemaphoreGive( dbSem );
-      }
-      #endif
+//      #if DEBUG
+//      if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//        Serial.print("SAMPLE: unable to open file ");
+//        Serial.print(filename);
+//        Serial.println();
+//        xSemaphoreGive( dbSem );
+//      }
+//      #endif
       return  ERR_SD_BUSY;
     }
 
@@ -100,33 +100,33 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
   }
 
   if( numPackets == 0 ){
-    #if DEBUG
-    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-      Serial.println("SAMPLE: file has no packets");
-      xSemaphoreGive( dbSem );
-    }
-    #endif
+//    #if DEBUG
+//    if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//      Serial.println("SAMPLE: file has no packets");
+//      xSemaphoreGive( dbSem );
+//    }
+//    #endif
     return ERR_SD_BUSY;
   }
 
   stride = floor( (double)(numPackets) / (double)(numToSample) );
   if( stride < 1 ) stride = 1;
 
-  #if DEBUG
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    Serial.print(F("SAMPLE: file size: "));
-    Serial.print(fileSize);
-    Serial.print(F(", num packets of type ( "));
-    Serial.print(ptype);
-    Serial.print("): ");
-    Serial.print(numPackets);
-    Serial.print(", numToSample: ");
-    Serial.print(numToSample);
-    Serial.print(", stride: ");
-    Serial.println(stride);
-    xSemaphoreGive( dbSem );
-  }
-  #endif
+//  #if DEBUG
+//  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//    Serial.print(F("SAMPLE: file size: "));
+//    Serial.print(fileSize);
+//    Serial.print(F(", num packets of type ( "));
+//    Serial.print(ptype);
+//    Serial.print("): ");
+//    Serial.print(numPackets);
+//    Serial.print(", numToSample: ");
+//    Serial.print(numToSample);
+//    Serial.print(", stride: ");
+//    Serial.println(stride);
+//    xSemaphoreGive( dbSem );
+//  }
+//  #endif
 
 
   // now re-open the file and
@@ -177,18 +177,18 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
     return ERR_SD_BUSY;
   }
 
-  #if DEBUG
-  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
-    Serial.print("SAMPLE: sampled ");
-    Serial.print(numSampled);
-    Serial.print(" packets of type (");
-    Serial.print(ptype);
-    Serial.print("), wrote  ");
-    Serial.print(outputPos);
-    Serial.println(" bytes to output buffer");
-    xSemaphoreGive( dbSem );
-  }
-  #endif
+//  #if DEBUG
+//  if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
+//    Serial.print("SAMPLE: sampled ");
+//    Serial.print(numSampled);
+//    Serial.print(" packets of type (");
+//    Serial.print(ptype);
+//    Serial.print("), wrote  ");
+//    Serial.print(outputPos);
+//    Serial.println(" bytes to output buffer");
+//    xSemaphoreGive( dbSem );
+//  }
+//  #endif
 
   if ( xSemaphoreTake( ledSem, ( TickType_t ) 5 ) == pdTRUE ) {
     ledError( OK );
