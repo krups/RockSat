@@ -87,7 +87,7 @@ Adafruit_MCP9600 mcps[6];
 
 // I2C addresses on MCP breakout board, use this to assign proper channels
 // need to specify per breakout if addressing not consistent between boards
-const uint8_t MCP_ADDRS[6] = {0x62, 0x61, 0x60, 0x63, 0x64, 0x67};
+const uint8_t MCP_ADDRS[6] = {0x63, 0x64, 0x62, 0x60, 0x61, 0x67};
 
 // freertos task handles
 TaskHandle_t Handle_compTask; // compression task handle
@@ -120,7 +120,6 @@ char sbuf[SBUF_SIZE];
 
 static uint8_t logBuf1[LOGBUF_BLOCK_SIZE];
 static uint8_t logBuf2[LOGBUF_BLOCK_SIZE];
-volatile uint32_t endWriteOffset = 0; // how many bytes have we written already
 volatile uint32_t logBuf1Pos = 0, // current write index in buffer1
          logBuf2Pos = 0; // current write index in buffer2
 volatile uint8_t activeLog = 1;   // which buffer should be used fo writing, 1 or 2
@@ -1135,7 +1134,8 @@ bool initMCP(int id) {
   }
 
   mcps[id].setADCresolution(MCP9600_ADCRESOLUTION_14);
-  /*
+
+  #ifdef DEBUG_MCP_STARTUP
   SERIAL.print("ADC resolution set to ");
   switch (mcps[id].getADCresolution()) {
     case MCP9600_ADCRESOLUTION_18:   SERIAL.print("18"); break;
@@ -1144,10 +1144,12 @@ bool initMCP(int id) {
     case MCP9600_ADCRESOLUTION_12:   SERIAL.print("12"); break;
   }
   SERIAL.println(" bits");
-  */
+  #endif
 
   mcps[id].setThermocoupleType(MCP9600_TYPE_K);
-  /*SERIAL.print("Thermocouple type set to ");
+
+  #ifdef DEBUG_MCP_STARTUP
+  SERIAL.print("Thermocouple type set to ");
   switch (mcps[id].getThermocoupleType()) {
     case MCP9600_TYPE_K:  SERIAL.print("K"); break;
     case MCP9600_TYPE_J:  SERIAL.print("J"); break;
@@ -1158,12 +1160,12 @@ bool initMCP(int id) {
     case MCP9600_TYPE_B:  SERIAL.print("B"); break;
     case MCP9600_TYPE_R:  SERIAL.print("R"); break;
   }
-  //SERIAL.println(" type");
-  */
+  #endif
+
 
   // TODO: what is the default filter coefficient
   // https://cdn.sparkfun.com/assets/9/0/b/0/3/MCP9600_Datasheet.pdf
-  mcps[id].setFilterCoefficient(1);
+  //mcps[id].setFilterCoefficient(1);
   //SERIAL.print("Filter coefficient value set to: ");
   //SERIAL.println(mcps[id].getFilterCoefficient());
 
@@ -1264,6 +1266,8 @@ static void compressionThread( void * pvParameters )
 //      }
 //      #endif
 
+
+      byte
       // TODO: need to sample spec data too, first just do TC
       ptypeToSample = PTYPE_TC;
       // sample the datfile, requesting packetsToSample samples of type ptypeToSample
@@ -1500,7 +1504,7 @@ static void tcThread( void *pvParameters )
       // assign tc temps from MCP objects to local vars
       for( int i=0; i<NUM_TC_CHANNELS; i++ ){
         current_temps[i] = readMCP(i);
-        //myDelayMs(5);
+        myDelayMs(1);
         //safeKick();
       }
 
@@ -1637,7 +1641,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
 
   xSemaphoreGive( sdSem );
 
-  #if DEBUG
+  #if DEBUG_LOG
   if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
     Serial.print("Wrote header to filename: ");
     Serial.println(filename);
@@ -1675,7 +1679,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         }
         #endif
       } else {
-        #if DEBUG
+        #if DEBUG_LOG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
           Serial.print("SDLOG: logfile size is ");
           Serial.print(filesize);
@@ -1697,7 +1701,7 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         // been recetn data written to
         memset(logBuf1, 0, LOGBUF_BLOCK_SIZE);
 
-        #if DEBUG
+        #if DEBUG_LOG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
           Serial.print("SD: wrote  ");
           Serial.print(written);
@@ -1722,15 +1726,13 @@ if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
         // been recetn data written to
         memset(logBuf2, 0, LOGBUF_BLOCK_SIZE);
 
-        #if DEBUG
+        #if DEBUG_LOG
         if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
           Serial.print("SD: wrote  ");
           Serial.print(written);
           Serial.print("/");
           Serial.print(LOGBUF_BLOCK_SIZE);
-          Serial.print(" bytes from logBuf2, ");
-          Serial.print("endWriteOffset is ");
-          Serial.println(endWriteOffset);
+          Serial.println(" bytes from logBuf2");
           xSemaphoreGive( dbSem );
         }
         #endif
@@ -1833,14 +1835,14 @@ static void parThread( void *pvParameters )
 /**********************************************************************************/
 void setup() {
 
-  // servo control
+  // servo control using servo trigger board
   pinMode(PIN_CHUTE_ACT, OUTPUT);
   digitalWrite(PIN_CHUTE_ACT, LOW);
 
   // attach servo
-//  linAct.attach(PIN_CHUTE_ACT);
-
-//  linAct.write(ACT_POS_HOME);
+  // need 3.3v -> 5v level shifter for linear actuators
+  //  linAct.attach(PIN_CHUTE_ACT);
+  //  linAct.write(ACT_POS_HOME);
 
   #if DEBUG
   SERIAL.begin(115200); // init debug serial
@@ -1937,10 +1939,6 @@ void setup() {
     SERIAL.println("failed to start all MCP devices");
     #endif
   }
-
-  #ifdef DEBUG
-  SERIAL.println("Created queues...");
-  #endif
 
   // SETUP RTOS SEMAPHORES
   // setup cdh serial port smphr

@@ -7,14 +7,15 @@
   //#define DEBUG_QUEUE 1 // print info on log queue operations
   //#define DEBUG_VERBOSE 1
   //#define DEBUG_BARO 1
-  #define DEBUG_IRD 1
-  //#define DEBUG_LOG 1
+  //#define DEBUG_IRD 1
+  #define DEBUG_LOG 1
   #define DEBUG_PAR 1
-  #define DEBUG_RAD 1
+  //#define DEBUG_RAD 1
   //#define DEBUG_SPEC 1
   //#define DEBUG_IMU 1
-  //#define DEBUG_TC
+  #define DEBUG_TC
   //#define DEBUG_TPMS_TRANSFER
+//#define DEBUG_MCP_STARTUP
 #endif
 
 // uncomment to enable GPS
