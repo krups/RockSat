@@ -137,7 +137,7 @@ int sample_datfile(uint8_t ptype, int numToSample, unsigned char *output)
 
 
   // now re-open the file and
-  if ( xSemaphoreTake( sdSem, ( TickType_t ) 100 ) == pdTRUE ) {
+  if ( xSemaphoreTake( sdSem, ( TickType_t ) 200 ) == pdTRUE ) {
 
     curBlock = 0;
     // open log file and read file info

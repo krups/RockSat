@@ -15,40 +15,44 @@
 #define PTYPE_PACKET 99 // compressed packet written to logfile
 
 struct packet_t {
-  uint32_t t;
-  uint32_t size; // actual data in packet
+  uint16_t t;    // in seconds
+  uint16_t size; // actual data in packet
   char data[SBD_TX_SZ];
 };
 
 // type PTYPE_ACC
 struct acc_t {
-  uint32_t t;
-  float data[3];
+  uint16_t t;      // in seconds
+  int16_t data[3]; // hold data * 10
 }; // 4 bytes
 
 // type PTYPE_IMU
 struct imu_t {
-  uint32_t t;
-  float data[6];
+  uint16_t t; // in seconds
+  // if  ok & 0xF0 then high g accel booted
+  // if ok & 0x0F then imu booted
+  uint16_t ok;
+  int16_t data[6]; // in 10 * m/s/s and 10 * deg/s
 }; // 7 bytes
 
 // type PTYPE_TMP
 struct tc_t {
-  uint32_t t;
-  float data[NUM_TC_CHANNELS];
+  uint16_t t;        // in seconds
+  int16_t internal; // in 10 * deg C
+  int16_t data[NUM_TC_CHANNELS]; // in 10 * deg C
 }; // NUM_TC_CHANNELS + 1 bytes
 
 //type PTYPE_BAR
 struct bar_t {
-  uint32_t t;
-  float prs;
-  float alt;
-  float tmp;
+  uint16_t t;  // seconds
+  int16_t prs; // 10 * hPa
+  int16_t alt; // in meters
+  int16_t tmp; // in 10 * deg C
 }; // 4 bytes
 
 struct rmc_t {
   uint32_t t; // microprocessor time in ms
-  int time[4]; // hh:mm:ss:us GPS time
+  uint16_t time[4]; // hh:mm:ss:us GPS time
   float lat;
   float lon;
   float speed;
@@ -57,7 +61,7 @@ struct rmc_t {
 
 struct gga_t {
   uint32_t t;
-  int time[4];
+  uint16_t time[4];
   float lat;
   float lon;
   float hdop;

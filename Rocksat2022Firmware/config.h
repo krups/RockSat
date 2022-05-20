@@ -13,13 +13,25 @@
   //#define DEBUG_RAD 1
   //#define DEBUG_SPEC 1
   //#define DEBUG_IMU 1
-  #define DEBUG_TC
+  //#define DEBUG_TC
   //#define DEBUG_TPMS_TRANSFER
 //#define DEBUG_MCP_STARTUP
 #endif
 
+#define TIME_SCALE 100 // ticks per time unit
+
+#define UNIT_SCALE 10 // multiplier applied
+
+#define PAR_DEPLOY_DELAY_MS 300000
+
 // uncomment to enable GPS
+// gps sample period is default 1Hz
 #define USE_GPS
+
+
+#define TC_SAMPLE_PERIOD_MS   1000
+#define SPEC_SAMPLE_PERIOD_MS 1000
+#define IMU_SAMPLE_PERIOD_MS  1000
 
 // uncomment to enable spectrometer
 #define USE_SPECTROMETER
@@ -31,7 +43,7 @@
 #define USE_LEDS
 
 #define SEND_PACKETS 0 // set 1 for mission
-#define IRIDIUM_PACKET_PERIOD 60000 // milliseconds, send a packet every minute
+#define IRIDIUM_PACKET_PERIOD 30000 // milliseconds, send a packet every minute
 #define CHECK_SIGNAL_PERIOD   5000 // milliseconds
 #define DIAGNOSTICS false// Change this to see diagnostics
 #define SBD_TX_SZ 340
@@ -45,13 +57,9 @@
 // NUM_TC_CHANNELS + NUM_HF_CHANNELS should always be equal to the total number of MCP9600 chips (TOT_MCP_COUNT)
 #define NUM_TC_CHANNELS       6 // deg celcius
 
-// Servo positions for the linear actuators that control the parachute
-#define ACT_POS_HOME          10
-#define ACT_POS_ACT           200
-
 // the logfilename to use in the format [A-Z]{3}[0-9]{2}.CSV
 // see https://regex101.com/
-#define LOGFILE_NAME              "TLM00.CSV"
+#define LOGFILE_NAME              "LG000.DAT"
 #define LOGFILE_NAME_LENGTH 10 // including null terminator
 
 #define LOGBUF_HEADER_SIZE 2048

@@ -197,40 +197,40 @@ void usage(char** argv)
 }
 
 void printRmc(rmc_t data, std::ostream &stream) {
-  stream << "RMC: " << data.t << ", " << data.time[0] << ":" << data.time[1] << ":" <<
+  stream << "RMC: " << data.t / (1000.0) << ", " << data.time[0] << ":" << data.time[1] << ":" <<
             data.time[2] << "." << data.time[3] << ", " << data.lat << ", " <<
             data.lon << ", " << data.speed << ", " << data.course << std::endl;
 }
 
 void printGga(gga_t data, std::ostream &stream) {
-  stream << "GGA: " << data.t << ", " << data.time[0] << ":" << data.time[1] << ":" <<
+  stream << "GGA: " << data.t / (1000.0) << ", " << data.time[0] << ":" << data.time[1] << ":" <<
             data.time[2] << "." << data.time[3] << ", " << data.lat << ", " <<
             data.lon << ", " << data.hdop << ", " << data.alt << std::endl;
 }
 
 void printTc(tc_t data, std::ostream &stream) {
-  stream << "TC: " << data.t << ", " << data.data[0] << ", " << data.data[1] << ", " <<
-            data.data[2] << ", " << data.data[3] << ", " << data.data[4] << ", " <<
-            data.data[5] <<  std::endl;
+  stream << "TC: " << ((float)data.t) / (1000.0 / (float)TIME_SCALE) << ", " << ((float)data.data[0])/((float)UNIT_SCALE) << ", " << ((float)data.data[1])/((float)UNIT_SCALE) << ", " <<
+            ((float)data.data[2])/((float)UNIT_SCALE) << ", " << ((float)data.data[3])/((float)UNIT_SCALE) << ", " << ((float)data.data[4])/((float)UNIT_SCALE) << ", " <<
+            ((float)data.data[5])/((float)UNIT_SCALE) <<  std::endl;
 }
 
 void printAcc(acc_t data, std::ostream &stream) {
-  stream << "ACC: " << data.t << ", " << data.data[0] << ", " << data.data[1] << ", " <<
-            data.data[2] << std::endl;
+  stream << "ACC: " << ((float)data.t) / (1000.0 / (float)TIME_SCALE) << ", " << ((float)data.data[0])/((float)UNIT_SCALE) << ", " << ((float)data.data[1]) / ((float)UNIT_SCALE) << ", " <<
+            ((float)data.data[2])/((float)UNIT_SCALE) << std::endl;
 }
 
 void printImu(imu_t data, std::ostream &stream) {
-  stream << "IMU: " << data.t << ", aX:" << data.data[0] << ", aY:" << data.data[1] << ", aZ:" <<
-            data.data[2] << ", gX:" << data.data[3] << ", gY:" << data.data[4] << ", gZ:" <<
-            data.data[5] <<  std::endl;
+  stream << "IMU: " << ((float)data.t)/ (1000.0 / (float)TIME_SCALE) << ", aX:" << ((float)data.data[0])/((float)UNIT_SCALE) << ", aY:" << ((float)data.data[1])/((float)UNIT_SCALE) << ", aZ:" <<
+            ((float)data.data[2])/((float)UNIT_SCALE) << ", gX:" << ((float)data.data[3])/((float)UNIT_SCALE) << ", gY:" << ((float)data.data[4])/((float)UNIT_SCALE) << ", gZ:" <<
+            ((float)data.data[5])/((float)UNIT_SCALE) <<  std::endl;
 }
 
 void printSpec(spec_t data, std::ostream &stream) {
-  stream << "SPEC: " << data.t << ", ch1 ratio:" << data.ch1 << ", ch2 ratio:" << data.ch2 << std::endl;
+  stream << "SPEC: " << ((float)data.t) / (1000.0 )  << ", ch1 ratio:" << data.ch1 << ", ch2 ratio:" << data.ch2 << std::endl;
 }
 
 void printBar(bar_t data, std::ostream &stream) {
-  stream << "BAR: " << data.t << ", prs:" << data.prs << ", temp:" << data.tmp << ", alt:" << data.alt << std::endl;
+  stream << "BAR: " << ((float)data.t) / (1000.0 / (float)TIME_SCALE) << ", prs:" << ((float)data.prs)/((float)UNIT_SCALE) << ", temp:" << ((float)data.tmp)/((float)UNIT_SCALE) << ", alt:" << ((float)data.alt)/((float)UNIT_SCALE) << std::endl;
 }
 
 void printPacket(packet_t data, std::ostream &stream) {
