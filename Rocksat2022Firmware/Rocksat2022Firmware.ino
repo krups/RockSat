@@ -85,6 +85,8 @@ void SERCOM4_3_Handler()
 // TC to digital objects
 Adafruit_MCP9600 mcps[6];
 
+Servo linact;
+
 // I2C addresses on MCP breakout board, use this to assign proper channels
 // need to specify per breakout if addressing not consistent between boards
 const uint8_t MCP_ADDRS[6] = {0x63, 0x64, 0x62, 0x60, 0x61, 0x67};
@@ -1757,29 +1759,26 @@ static void parThread( void *pvParameters )
   #endif
 
   while(1) {
-    // peek at gga and pressure queues to see if activation criteria have been met
-
     myDelayMs(50);
 
     if (deployed) continue;
 
-    // Parachute deplot delay timer
-    if ( xTaskGetTickCount() > PAR_DEPLOY_DELAY_MS ) {
-      deployed = true;
-    }
-
     #ifdef DEBUG
     if ( xSemaphoreTake( dbSem, ( TickType_t ) 100 ) == pdTRUE ) {
       if( Serial.available() ){
-        if( Serial.read() == 'p' ){
+        if( Serial.peek() == 'p' ){
           deployed = true;
+          Serial.read();
         }
-
       }
       xSemaphoreGive( dbSem );
     }
     #endif
 
+    // Parachute deplot delay timer
+    if ( xTaskGetTickCount() > PAR_DEPLOY_DELAY_MS ) {
+      deployed = true;
+    }
 
     if( deployed ){
       #ifdef DEBUG
@@ -1791,6 +1790,10 @@ static void parThread( void *pvParameters )
       }
       #endif
 
+
+      // servo control
+      linact.write(ACT_POS_ACT);
+
       if ( xSemaphoreTake( depSem, ( TickType_t ) portMAX_DELAY ) == pdTRUE ) {
         globalDeploy = true;
         xSemaphoreGive( depSem );
@@ -1798,6 +1801,7 @@ static void parThread( void *pvParameters )
 
       // send signal to servo trigger board
       digitalWrite(PIN_CHUTE_ACT, HIGH);
+
     }
   }
 
@@ -1819,8 +1823,10 @@ void setup() {
 
   // attach servo
   // need 3.3v -> 5v level shifter for linear actuators
-  //  linAct.attach(PIN_CHUTE_ACT);
-  //  linAct.write(ACT_POS_HOME);
+  //linAct.attach(PIN_CHUTE_ACT);
+  //delay(10);
+  //linAct.write(ACT_POS_HOME);
+
 
   #if DEBUG
   SERIAL.begin(115200); // init debug serial
@@ -2000,6 +2006,7 @@ void setup() {
   #ifdef DEBUG
   SERIAL.println("Created semaphores...");
   #endif
+
 
   /**************
   * CREATE TASKS

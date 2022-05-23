@@ -22,6 +22,8 @@
 
 #define UNIT_SCALE 10 // multiplier applied
 
+#define ACT_POS_HOME 60
+#define ACT_POS_ACT  90
 #define PAR_DEPLOY_DELAY_MS 300000
 
 // uncomment to enable GPS
@@ -42,8 +44,8 @@
 // uncomment to enable error led reporting
 #define USE_LEDS
 
-#define SEND_PACKETS 0 // set 1 for mission
-#define IRIDIUM_PACKET_PERIOD 30000 // milliseconds, send a packet every minute
+#define SEND_PACKETS 1 // set 1 for mission
+#define IRIDIUM_PACKET_PERIOD 20000 // milliseconds, send a packet every minute
 #define CHECK_SIGNAL_PERIOD   5000 // milliseconds
 #define DIAGNOSTICS false// Change this to see diagnostics
 #define SBD_TX_SZ 340

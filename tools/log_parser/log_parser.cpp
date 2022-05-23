@@ -193,7 +193,7 @@ int main(int argc, char** argv)
 void usage(char** argv)
 {
   std::cout << "USAGE:" << std::endl;
-  std::cout << "  " << argv[0] << "[log | packet] input.file" << std::endl;
+  std::cout << "  " << argv[0] << " [log | packet] input_file" << std::endl;
 }
 
 void printRmc(rmc_t data, std::ostream &stream) {
@@ -220,17 +220,17 @@ void printAcc(acc_t data, std::ostream &stream) {
 }
 
 void printImu(imu_t data, std::ostream &stream) {
-  stream << "IMU: " << ((float)data.t)/ (1000.0 / (float)TIME_SCALE) << ", aX:" << ((float)data.data[0])/((float)UNIT_SCALE) << ", aY:" << ((float)data.data[1])/((float)UNIT_SCALE) << ", aZ:" <<
-            ((float)data.data[2])/((float)UNIT_SCALE) << ", gX:" << ((float)data.data[3])/((float)UNIT_SCALE) << ", gY:" << ((float)data.data[4])/((float)UNIT_SCALE) << ", gZ:" <<
+  stream << "IMU: " << ((float)data.t)/ (1000.0 / (float)TIME_SCALE) << ", " << ((float)data.data[0])/((float)UNIT_SCALE) << ", " << ((float)data.data[1])/((float)UNIT_SCALE) << ", " <<
+            ((float)data.data[2])/((float)UNIT_SCALE) << ", " << ((float)data.data[3])/((float)UNIT_SCALE) << "," << ((float)data.data[4])/((float)UNIT_SCALE) << ", " <<
             ((float)data.data[5])/((float)UNIT_SCALE) <<  std::endl;
 }
 
 void printSpec(spec_t data, std::ostream &stream) {
-  stream << "SPEC: " << ((float)data.t) / (1000.0 )  << ", ch1 ratio:" << data.ch1 << ", ch2 ratio:" << data.ch2 << std::endl;
+  stream << "SPEC: " << ((float)data.t) / (1000.0 )  << ", " << data.ch1 << ", " << data.ch2 << std::endl;
 }
 
 void printBar(bar_t data, std::ostream &stream) {
-  stream << "BAR: " << ((float)data.t) / (1000.0 / (float)TIME_SCALE) << ", prs:" << ((float)data.prs)/((float)UNIT_SCALE) << ", temp:" << ((float)data.tmp)/((float)UNIT_SCALE) << ", alt:" << ((float)data.alt)/((float)UNIT_SCALE) << std::endl;
+  stream << "BAR: " << ((float)data.t) / (1000.0 / (float)TIME_SCALE) << ", " << ((float)data.prs)/((float)UNIT_SCALE) << ", " << ((float)data.tmp)/((float)UNIT_SCALE) << ", " << ((float)data.alt)/((float)UNIT_SCALE) << std::endl;
 }
 
 void printPacket(packet_t data, std::ostream &stream) {
