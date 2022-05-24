@@ -3,21 +3,8 @@ import serial
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
-import time
-import pickle
-from datetime import datetime
-from datetime import date
-import os
 from time import sleep
-from random import uniform
 plt.style.use('ggplot')
-
-today = date.today()
-today = today.strftime("%m_%d_%y")
-
-now = datetime.now()
-current_time = now.strftime("%H_%M_%S")
-
 
 if len(sys.argv) == 1:
     arduino_port = "/dev/cu.usbmodem47110001"
@@ -29,7 +16,7 @@ ser = serial.Serial(arduino_port, baud)
 print("Connected to Arduino port: " + arduino_port)
 
 channels = 288
-time.sleep(1)  # Pause 1 second for suspense
+sleep(1)  # Pause 1 second for suspense
 line_1 = 0
 # Create a numpy array to store the spectrometer data and the integral result
 spec_data_1 = np.zeros([1000, channels+2])
