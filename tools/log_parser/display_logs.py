@@ -6,62 +6,81 @@ import sys
 import pandas as pd
 from time import sleep
 from os import listdir
-from os.path import isfile, join
+from os.path import isfile, join, isdir
 import plotly
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
-csv_save_path = "parsed_data.csv"
+current_time = datetime.now().strftime("%m-%d_%H%M")
+csv_save_path = f"parsed_data_{current_time}.csv"
+
 
 ################################
 #
 #       build dataframe
 #
 ################################
-parser_outputs_dir = "./parser_output/"
-parser_outputs = [join(parser_outputs_dir, f) for f in listdir(
-    parser_outputs_dir) if isfile(join(parser_outputs_dir, f))]
-col_names = ['Type', 'Time', 'Val_1', 'Val_2',
-             'Val_3', 'Val_4', 'Val_5', 'Val_6']
-df = pd.DataFrame(columns=col_names)
+
 
 ####################
 #   Preprocessing
 ####################
-for input in parser_outputs:
-    IN = open(input, "r").read()
-    IN = IN.split('\n')
-    lines = IN[4:-1]
-    data = []
-    for x in lines:
-        temp = x.split(',')
-        temp = [y.strip() for y in temp]
-        q = [y.split() for y in temp]
-        temp[0] = q[0][1]
-        temp.insert(0, q[0][0].replace(":", ""))
-        while len(temp) != 8:
-            temp.append("NaN")
-        data.append(temp)
-    # append dataframe
-    for x in data:
-        # print(x)
-        temp_df = pd.DataFrame([x], columns=col_names)
-        df = pd.concat([df, temp_df], ignore_index=True)
-df = df.apply(pd.to_numeric, errors='ignore')
-print("Dataframe created")
+col_names = ['Type', 'Time', 'Val_1', 'Val_2','Val_3', 'Val_4', 'Val_5', 'Val_6']
 
-####################
-#     Sort CSV
-####################
-df = df.sort_values(by=col_names[1], ignore_index=True)
-print(f"Dataframe sorted by {col_names[1]}")
+# Import dataframe from existing file
+if (len(sys.argv) > 1):
+    if isfile(sys.argv[1]):
+        print(f"Importing data from {sys.argv[1]}")
+        df = pd.read_csv(sys.argv[1])
+        print(df)
+    else:
+        print(f"Error: File \"{sys.argv[1]}\" does not exist.")
+        exit() 
 
-####################
-#     Save CSV
-####################
-print(f"Dataframe saved to {csv_save_path}")
-df.to_csv(csv_save_path, index_label=False, index=False)
-print(df)
+# Create dataframe from parser output 
+else:
+    parser_outputs_dir = "./parser_output/"
+    if not isdir(parser_outputs_dir):
+        print("Error: Parser output folder doesn't exist")
+        exit()
+    parser_outputs = [join(parser_outputs_dir, f) for f in listdir(
+        parser_outputs_dir) if isfile(join(parser_outputs_dir, f))]
+    df = pd.DataFrame(columns=col_names)
+
+    for input in parser_outputs:
+        IN = open(input, "r").read()
+        IN = IN.split('\n')
+        lines = IN[4:-1]
+        data = []
+        for x in lines:
+            temp = x.split(',')
+            temp = [y.strip() for y in temp]
+            q = [y.split() for y in temp]
+            temp[0] = q[0][1]
+            temp.insert(0, q[0][0].replace(":", ""))
+            while len(temp) != 8:
+                temp.append("NaN")
+            data.append(temp)
+        # append dataframe
+        for x in data:
+            # print(x)
+            temp_df = pd.DataFrame([x], columns=col_names)
+            df = pd.concat([df, temp_df], ignore_index=True)
+    df = df.apply(pd.to_numeric, errors='ignore')
+    print("Dataframe created from parser output")
+    ####################
+    #     Sort CSV
+    ####################
+    df = df.sort_values(by=col_names[1], ignore_index=True)
+    print(f"Dataframe sorted by {col_names[1]}")
+
+    ####################
+    #     Save CSV
+    ####################
+    print(f"Dataframe saved to {csv_save_path}")
+    df.to_csv(csv_save_path, index_label=False, index=False)
+    print(df)
 
 ################################
 #
