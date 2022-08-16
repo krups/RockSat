@@ -1,7 +1,11 @@
+# removes previous temp data if it exists
+./clean.sh
+
 # directory paths
-raw_dir=./raw_packets
+raw_dir=./raw_packets # change to directory of raw packets
 decompress_dir=./decompressed_packets
 output_dir=./parser_output
+csv_dir=./csv_bin
 
 # utility binary paths
 decompress=./decompressor
@@ -11,6 +15,8 @@ parser=./log_parser
 [ ! -d $raw_dir ] && mkdir $raw_dir
 [ ! -d $decompress_dir ] && mkdir $decompress_dir
 [ ! -d $output_dir ] && mkdir $output_dir
+[ ! -d $csv_dir ] && mkdir $csv_dir
+
 
 # check for util binaries and compile if they don't exist
 [ ! -f $parser ] && g++ ./parser/log_parser.cpp -o log_parser
@@ -36,4 +42,4 @@ done
 echo "-------------------------------------------------------------------------------"
 
 echo "Running display_logs.py"
-python3 ./display_logs.py
+# python3 ./display_logs.py
