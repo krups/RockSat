@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 current_time = datetime.now().strftime("%m-%d_%H%M")
-csv_save_path = f"parsed_data_{current_time}.csv"
+csv_save_path = f"csv_bin/parsed_data_{current_time}.csv"
 
 ################################
 #
@@ -183,12 +183,12 @@ TC_6 = TC_df["Val_6"]
 TC_time = TC_df["Time"]
 
 TC_fig, TC_axs = plt.subplots()
-TC_axs.plot(TC_time, TC_1, label="TC 1")
-TC_axs.plot(TC_time, TC_2, label="TC 2")
-TC_axs.plot(TC_time, TC_3, label="TC 3")
-TC_axs.plot(TC_time, TC_4, label="TC 4")
-TC_axs.plot(TC_time, TC_5, label="TC 5")
-TC_axs.plot(TC_time, TC_6, label="TC 6")
+TC_axs.plot(TC_time, TC_1, label="TC 1", marker="o")
+TC_axs.plot(TC_time, TC_2, label="TC 2", marker="^")
+TC_axs.plot(TC_time, TC_3, label="TC 3", marker="v")
+TC_axs.plot(TC_time, TC_4, label="TC 4", marker="<")
+TC_axs.plot(TC_time, TC_5, label="TC 5", marker=">")
+TC_axs.plot(TC_time, TC_6, label="TC 6", marker="x")
 TC_axs.legend()
 TC_axs.set_xlabel("Time (s)")
 TC_axs.set_ylabel("Temperature (C)")
@@ -245,6 +245,7 @@ SPEC_2 = SPEC_df["Val_2"]
 SPEC_time = SPEC_df["Time"]
 
 SPEC_fig, SPEC_axs = plt.subplots()
+SPEC_axs.set_ylim([0, 1])
 SPEC_axs.scatter(SPEC_time, SPEC_1, label="Spectrometer 1")
 SPEC_axs.scatter(SPEC_time, SPEC_2, label="Spectrometer 2")
 SPEC_axs.legend()
