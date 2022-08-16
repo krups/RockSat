@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>KARS Gyro Visualizer</title>
+    <meta name='viewport' content='width=device-width, user-scalable=no' />
+    <style>
+        #capsule-container {
+            width: 95%;
+            display: flex;
+            align-items: top;
+            justify-items: center;
+            flex-wrap: wrap;
+            border: 2px blue solid;
+            border-radius: 5%;
+            padding: 2.5%;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.138.0/build/three.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="capsule-container">
+        <h1>KARS Gyroscope Viewer</h1>
+    </div>
+    <script src="./scripts.js" type="module"></script>
+</body>
+
+</html>
