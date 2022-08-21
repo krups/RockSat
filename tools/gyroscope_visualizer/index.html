@@ -5,31 +5,81 @@
     <title>KARS Gyro Visualizer</title>
     <meta name='viewport' content='width=device-width, user-scalable=no' />
     <style>
-        #capsule-container {
-            width: 95%;
+        body {
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+        }
+
+        #content-container {
+            width: 75%;
             display: flex;
             align-items: top;
-            justify-items: center;
+            justify-content: center;
             flex-wrap: wrap;
             border: 2px blue solid;
-            border-radius: 5%;
+            border-radius: 15px;
             padding: 2.5%;
+        }
+
+        #content-container>* {
+            margin: 0.5%;
+        }
+
+        #capsule-container {
+            width: 100%;
+            border: 2px blue solid;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        .active {
+            background-color: #787878;
+            color: white;
+        }
+
+        /* Table styles */
+        #Time_s {
+            background-color: blue;
+            color: white;
+        }
+
+        #data {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        #data td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+
+        #data tr:hover {
+            background-color: #ddd;
         }
     </style>
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.138.0/build/three.module.js"
+                "three": "./three/build/three.module.js"
             }
         }
     </script>
 </head>
 
 <body>
-    <div id="capsule-container">
+    <div id="content-container">
         <h1>KARS Gyroscope Viewer</h1>
+        <p style="width:100%;">Press play or use slider. Click and drag model.</p>
+        <div style="display: flex; width: 100%;">
+            <div id="capsule-container"></div>
+        </div>
+        <script src="./scripts.js" type="module"></script>
+        <input id="reset" type="button" value="Reset">
+        <input id="start" type="button" value="&#9658;">
     </div>
-    <script src="./scripts.js" type="module"></script>
+    <div id="data-table"></div>
 </body>
 
 </html>
