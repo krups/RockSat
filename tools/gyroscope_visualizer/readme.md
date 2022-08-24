@@ -1,5 +1,4 @@
 Gyroscope Visualization Tool for KARS
-< In progress > 
 
 To use: 
-  - Open index.html in web browser which supports WebGL (Some browsers include Chrome, Firefox, and Microsoft Edge)
+  - Use live html server to view tool (Live Server extension for VS code is the easiest to set up and use: https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer)
