@@ -14,6 +14,7 @@ function degrees_to_radians(degrees) {
     return degrees * (Math.PI / 180);
 }
 
+var prev = -1;
 function setActive(i) {
     if (prev != -1) {
         prev.classList.remove("active");
@@ -53,16 +54,16 @@ for (var i = 0; i < data.length; i++) {
 }
 
 // builds range slider and event listener
-var range = document.createElement('input');
-range.type = "range";
-range.min = 1;
-range.max = data.length - 1;
-range.value = 1;
-range.addEventListener('input', function () {
-    console.log(data[this.value]);
-    updateRotation(data[this.value]);
-    setActive(this.value);
-});
+// var range = document.createElement('input');
+// range.type = "range";
+// range.min = 1;
+// range.max = data.length - 1;
+// range.value = 1;
+// range.addEventListener('input', function () {
+//     console.log(data[this.value]);
+//     updateRotation(data[this.value]);
+//     setActive(this.value);
+// });
 
 ///////////////////////////////////////////////////
 //
@@ -132,13 +133,32 @@ function render() {
 render();
 animate();
 
+// Handles model rotation
+var x_rot = 0;
+var y_rot = 0;
+var z_rot = 0;
+var x_mult = 0;
+var y_mult = 0;
+var z_mult = 0;
+function rotate(x_mult, y_mult, z_mult) {
+    console.log("I am rotate");
+    console.log([x_rot, y_rot, z_rot]);
+    model.rotation.x = degrees_to_radians(x_rot);
+    model.rotation.y = degrees_to_radians(y_rot);
+    model.rotation.z = degrees_to_radians(z_rot);
+    x_rot += 1 * x_mult;
+    y_rot += 1 * y_mult;
+    z_rot += 1 * z_mult;
+    controls.update();
+}
+
 // Update model rotation
 function updateRotation(angles) {
     // three.js axis of rotation differs from Adafruit_BNO055
     // Adjusted below to match the Adafruit_BNO055 datasheet 
-    model.rotation.x = degrees_to_radians(angles[2]);
-    model.rotation.y = degrees_to_radians(angles[3]);
-    model.rotation.z = degrees_to_radians(angles[1]);
+    x_mult = angles[2];
+    y_mult = angles[3];
+    z_mult = angles[1];
     controls.update();
 }
 
@@ -153,20 +173,31 @@ function reset() {
     model.rotation.x = 0;
     model.rotation.y = 0;
     model.rotation.z = 0;
+    x_rot = 0;
+    y_rot = 0;
+    z_rot = 0;
+    x_mult = 0;
+    y_mult = 0;
+    z_mult = 0;
     camera.position.set(20, 7.5, 20);
     controls.update();
 }
 
 // Begins stepping through the data points 
 // and updates model rotation
-var prev = -1;
 async function start() {
     console.log("start");
-    range.value = 1;
-    for (var i = 1; i < range.max + 1; i++) {
-        updateRotation(data[i]);
-        setActive(i);
-        await timer(250); // Sets time delay while playing
+    var j = 1;
+    for (var i = 1; i < Math.ceil(data[data.length - 1][0]) + 3; i++) {
+        rotate(x_mult, y_mult, z_mult);
+        if (i == Math.ceil(data[j][0])) {
+            console.log("UPDATING");
+            setActive(j);
+            updateRotation(data[j]);
+            j++;
+            if (j > data.length - 1) j = data.length - 1;
+        }
+        await timer(1000); // Sets time delay while playing
     }
 }
 
