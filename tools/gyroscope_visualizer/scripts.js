@@ -146,9 +146,9 @@ function rotate(x_mult, y_mult, z_mult) {
     model.rotation.x = degrees_to_radians(x_rot);
     model.rotation.y = degrees_to_radians(y_rot);
     model.rotation.z = degrees_to_radians(z_rot);
-    x_rot += 1 * x_mult;
-    y_rot += 1 * y_mult;
-    z_rot += 1 * z_mult;
+    x_rot += .1 * x_mult;
+    y_rot += .1 * y_mult;
+    z_rot += .1 * z_mult;
     controls.update();
 }
 
@@ -188,16 +188,16 @@ function reset() {
 async function start() {
     console.log("start");
     var j = 1;
-    for (var i = 1; i < Math.ceil(data[data.length - 1][0]) + 3; i++) {
+    for (var i = 1; i < (Math.ceil(data[data.length - 1][0]) + 3) * 10; i++) {
         rotate(x_mult, y_mult, z_mult);
-        if (i == Math.ceil(data[j][0])) {
+        if (i == Math.ceil(data[j][0]) * 10) {
             console.log("UPDATING");
             setActive(j);
             updateRotation(data[j]);
             j++;
             if (j > data.length - 1) j = data.length - 1;
         }
-        await timer(1000); // Sets time delay while playing
+        await timer(100); // Sets time delay while playing
     }
 }
 
