@@ -165,7 +165,7 @@ function updateRotation(angles) {
 // Sets view to default values
 function reset() {
     if (prev != -1) prev.classList.remove("active");
-    range.value = 1;
+    // range.value = 1;
     model.scale.set(model_scale, model_scale, model_scale);
     model.position.x = 0;
     model.position.y = 0;
