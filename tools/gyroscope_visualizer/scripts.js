@@ -19,9 +19,11 @@ function setActive(i) {
     if (prev != -1) {
         prev.classList.remove("active");
     }
-    prev = document.getElementById(data[i][0]);
-    document.getElementById(data[i][0]).classList.add("active");
+    prev = document.getElementById(interpolated[i][0]);
+    document.getElementById(interpolated[i][0]).classList.add("active");
 }
+
+const lerp = (x, y, a) => x * (1 - a) + y * a;
 
 ///////////////////
 //
@@ -42,14 +44,31 @@ var data = [['Time_s', 'x', 'y', 'z'],
 [62.0, -22.6, 2.0, 4.4]
 ]
 
+var interpolated = [];
+interpolated.push(data[0]);
+for (var i = 1; i < data.length - 1; i++) {
+    interpolated.push(data[i]);
+    // var avg_t = (data[i][0] + data[i + 1][0]) / 2;
+    // var avg_x = (data[i][1] + data[i + 1][1]) / 2;
+    // var avg_y = (data[i][2] + data[i + 1][2]) / 2;
+    // var avg_z = (data[i][3] + data[i + 1][3]) / 2;
+
+    var avg_t = lerp(data[i][0], data[i + 1][0], 0.5);
+    var avg_x = lerp(data[i][1], data[i + 1][1], 0.5);
+    var avg_y = lerp(data[i][2], data[i + 1][2], 0.5);
+    var avg_z = lerp(data[i][3], data[i + 1][3], 0.5);
+    interpolated.push([avg_t.toPrecision(4), avg_x.toPrecision(4), avg_y.toPrecision(4), avg_z.toPrecision(4)]);
+}
+interpolated.push(data[data.length - 1]);
+
 // builds data table
 var tab = document.createElement("table");
 tab.id = "data";
-for (var i = 0; i < data.length; i++) {
+for (var i = 0; i < interpolated.length; i++) {
     var row = tab.insertRow(i);
     for (var j = 0; j < 4; j++) {
-        row.id = data[i][0];
-        row.insertCell(j).innerHTML = data[i][j];
+        row.id = interpolated[i][0];
+        row.insertCell(j).innerHTML = interpolated[i][j];
     }
 }
 
@@ -180,22 +199,26 @@ function reset() {
     y_mult = 0;
     z_mult = 0;
     camera.position.set(20, 7.5, 20);
+    counter.innerHTML = 0;
     controls.update();
 }
 
 // Begins stepping through the data points 
 // and updates model rotation
+var counter = document.getElementById("timer");
+counter.innerHTML = 0;
 async function start() {
     console.log("start");
     var j = 1;
-    for (var i = 1; i < (Math.ceil(data[data.length - 1][0]) + 3) * 10; i++) {
+    for (var i = 1; i < (Math.ceil(interpolated[interpolated.length - 1][0]) + 3) * 10; i++) {
+        counter.innerHTML = (i * .1).toPrecision(3);
         rotate(x_mult, y_mult, z_mult);
-        if (i == Math.ceil(data[j][0]) * 10) {
+        if (i == Math.ceil(interpolated[j][0]) * 10) {
             console.log("UPDATING");
             setActive(j);
-            updateRotation(data[j]);
+            updateRotation(interpolated[j]);
             j++;
-            if (j > data.length - 1) j = data.length - 1;
+            if (j > interpolated.length - 1) j = interpolated.length - 1;
         }
         await timer(100); // Sets time delay while playing
     }
