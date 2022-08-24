@@ -84,7 +84,7 @@ renderer.setClearColor('black');
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth * .75, window.innerHeight * .75);
 document.getElementById('data-table').appendChild(tab);
-document.getElementById('content-container').appendChild(range);
+// document.getElementById('content-container').appendChild(range);
 document.getElementById('capsule-container').appendChild(renderer.domElement);
 
 // Load the Orbitcontroller
