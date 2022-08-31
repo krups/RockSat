@@ -127,7 +127,7 @@ scene.add(axesHelper);
 // glb Loader
 var loader = new GLTFLoader();
 var model;
-loader.load('./capsule.glb', function (gltf) {
+loader.load('./Updated model.glb', function (gltf) {
     model = gltf.scene;
     model.scale.set(model_scale, model_scale, model_scale);
     model.position.x = 0;
